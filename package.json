@@ -1,0 +1,32 @@
+{
+  "name": "ad-creative-optimizer",
+  "version": "0.1.0",
+  "description": "AI-powered ad creative fatigue prediction and optimization tool",
+  "main": "src/api/index.js",
+  "scripts": {
+    "dev": "nodemon src/api/index.js",
+    "start": "node src/api/index.js",
+    "test": "jest",
+    "dev:frontend": "cd frontend && npm run dev",
+    "build:frontend": "cd frontend && npm run build"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "node-cron": "^3.0.3",
+    "google-ads-api": "^19.0.0",
+    "facebook-nodejs-business-sdk": "^19.0.0",
+    "axios": "^1.6.7",
+    "pg": "^8.11.3",
+    "redis": "^4.6.13",
+    "zod": "^3.22.4",
+    "clerk-sdk-node": "^4.2.0",
+    "slack-webhook": "^1.0.0",
+    "nodemailer": "^6.9.9"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0",
+    "jest": "^29.7.0"
+  }
+}
