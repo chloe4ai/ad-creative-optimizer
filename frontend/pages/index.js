@@ -3,6 +3,7 @@ import Dashboard from '../components/Dashboard';
 import CreativeList from '../components/CreativeList';
 import AlertCenter from '../components/AlertCenter';
 import AccountSettings from '../components/AccountSettings';
+import { fetchAPI } from '../lib/api';
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -15,8 +16,7 @@ export default function Home() {
 
   const fetchDashboard = async () => {
     try {
-      const res = await fetch('/api/analytics/dashboard');
-      const data = await res.json();
+      const data = await fetchAPI('/api/analytics/dashboard');
       setStats(data.data);
     } catch (error) {
       console.error('Failed to fetch dashboard:', error);

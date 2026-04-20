@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { formatDistanceToNow } from 'date-fns';
+import { fetchAPI } from '../lib/api';
 
 export default function AlertCenter() {
   const [alerts, setAlerts] = useState([]);
@@ -11,8 +12,7 @@ export default function AlertCenter() {
 
   const fetchAlerts = async () => {
     try {
-      const res = await fetch('/api/creatives/alerts/list');
-      const data = await res.json();
+      const data = await fetchAPI('/api/creatives/alerts/list');
       setAlerts(data.data || []);
     } catch (error) {
       console.error('Failed to fetch alerts:', error);
