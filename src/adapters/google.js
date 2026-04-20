@@ -1,4 +1,4 @@
-import { GoogleAdsApi } from 'google-ads-api';
+import { GoogleAdsApi } from '@google-ads/api';
 import BaseAdapter from './base.js';
 
 export class GoogleAdsAdapter extends BaseAdapter {
