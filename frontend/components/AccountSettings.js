@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { fetchAPI } from '../lib/api';
 
 export default function AccountSettings() {
   const [accounts, setAccounts] = useState([]);
@@ -17,8 +18,7 @@ export default function AccountSettings() {
 
   const fetchAccounts = async () => {
     try {
-      const res = await fetch('/api/accounts');
-      const data = await res.json();
+      const data = await fetchAPI('/api/accounts');
       setAccounts(data.data || []);
     } catch (error) {
       console.error('Failed to fetch accounts:', error);
@@ -30,16 +30,13 @@ export default function AccountSettings() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/accounts', {
+      await fetchAPI('/api/accounts', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData),
       });
-      if (res.ok) {
-        setShowAddForm(false);
-        setFormData({ platform: 'meta', accountId: '', accountName: '', accessToken: '' });
-        fetchAccounts();
-      }
+      setShowAddForm(false);
+      setFormData({ platform: 'meta', accountId: '', accountName: '', accessToken: '' });
+      fetchAccounts();
     } catch (error) {
       console.error('Failed to add account:', error);
     }
@@ -48,7 +45,7 @@ export default function AccountSettings() {
   const handleDelete = async (id) => {
     if (!confirm('确定要移除这个账户吗？')) return;
     try {
-      await fetch(`/api/accounts/${id}`, { method: 'DELETE' });
+      await fetchAPI(`/api/accounts/${id}`, { method: 'DELETE' });
       fetchAccounts();
     } catch (error) {
       console.error('Failed to delete account:', error);
@@ -57,8 +54,7 @@ export default function AccountSettings() {
 
   const handleSync = async (id) => {
     try {
-      const res = await fetch(`/api/accounts/${id}/sync`, { method: 'POST' });
-      const data = await res.json();
+      const data = await fetchAPI(`/api/accounts/${id}/sync`, { method: 'POST' });
       alert(`同步完成: ${data.message}`);
     } catch (error) {
       console.error('Failed to sync account:', error);

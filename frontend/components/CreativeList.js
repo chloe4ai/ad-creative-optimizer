@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { format } from 'date-fns';
+import { fetchAPI } from '../lib/api';
 
 export default function CreativeList() {
   const [creatives, setCreatives] = useState([]);
@@ -16,8 +17,7 @@ export default function CreativeList() {
       if (filter.platform) params.set('platform', filter.platform);
       if (filter.status) params.set('status', filter.status);
 
-      const res = await fetch(`/api/creatives?${params}`);
-      const data = await res.json();
+      const data = await fetchAPI(`/api/creatives?${params}`);
       setCreatives(data.data || []);
     } catch (error) {
       console.error('Failed to fetch creatives:', error);
