@@ -105,24 +105,36 @@ export async function fetchAPI(endpoint, options = {}) {
     }
   }
 
-  // Try real API if configured
-  if (API_URL) {
-    try {
-      const url = `${API_URL}${endpoint}`;
-      const response = await fetch(url, {
-        ...options,
-        headers: {
-          'Content-Type': 'application/json',
-          ...options.headers,
-        },
-      });
+  // If no real API configured, use demo data directly
+  if (!API_URL) {
+    const demo = DEMO_DATA[endpoint];
+    if (demo) return demo;
+    throw new Error(`API Error: ${endpoint} not found`);
+  }
 
-      if (response.ok) {
-        return response.json();
+  // Try real API
+  try {
+    const url = `${API_URL}${endpoint}`;
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...options.headers,
+      },
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      // If real API returns empty data, fall back to demo
+      const isEmpty =
+        (Array.isArray(data.data) && data.data.length === 0) ||
+        (data.data === null || data.data === undefined);
+      if (!isEmpty) {
+        return data;
       }
-    } catch (error) {
-      // Real API unavailable — fall through to demo data
     }
+  } catch (error) {
+    // Real API unavailable — fall through to demo data
   }
 
   // Use demo data
