@@ -47,11 +47,11 @@ export default function AlertCenter() {
   const getTypeLabel = (type) => {
     switch (type) {
       case 'fatigue_detected':
-        return '疲劳已发生';
+        return 'Fatigue Detected';
       case 'fatigue_warning':
-        return '疲劳预警';
+        return 'Fatigue Warning';
       case 'performance_drop':
-        return '效果下降';
+        return 'Performance Drop';
       default:
         return type;
     }
@@ -62,22 +62,22 @@ export default function AlertCenter() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold">Alert Center</h2>
-          <p className="text-sm text-gray-500">管理您的广告创意预警</p>
+          <p className="text-sm text-gray-500">Manage your ad creative alerts</p>
         </div>
         <button
           onClick={fetchAlerts}
           className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
         >
-          刷新
+          Refresh
         </button>
       </div>
 
       {loading ? (
-        <div className="bg-white rounded-xl shadow p-8 text-center">加载中...</div>
+        <div className="bg-white rounded-xl shadow p-8 text-center">Loading...</div>
       ) : alerts.length === 0 ? (
         <div className="bg-white rounded-xl shadow p-8 text-center">
           <div className="text-4xl mb-4">🎉</div>
-          <p className="text-gray-500">没有待处理的预警</p>
+          <p className="text-gray-500">No pending alerts</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -111,7 +111,7 @@ export default function AlertCenter() {
                     onClick={() => {/* Mark as resolved */}}
                     className="px-3 py-1 text-sm border rounded hover:bg-white"
                   >
-                    标记已处理
+                    Mark Resolved
                   </button>
                 </div>
               </div>
