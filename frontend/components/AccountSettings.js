@@ -43,7 +43,7 @@ export default function AccountSettings() {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('确定要移除这个账户吗？')) return;
+    if (!confirm('Are you sure you want to remove this account?')) return;
     try {
       await fetchAPI(`/api/accounts/${id}`, { method: 'DELETE' });
       fetchAccounts();
@@ -55,7 +55,7 @@ export default function AccountSettings() {
   const handleSync = async (id) => {
     try {
       const data = await fetchAPI(`/api/accounts/${id}/sync`, { method: 'POST' });
-      alert(`同步完成: ${data.message}`);
+      alert(`Sync complete: ${data.message}`);
     } catch (error) {
       console.error('Failed to sync account:', error);
     }
@@ -74,20 +74,20 @@ export default function AccountSettings() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold">Connected Accounts</h2>
-          <p className="text-sm text-gray-500">管理您的广告平台账户</p>
+          <p className="text-sm text-gray-500">Manage your connected ad platform accounts</p>
         </div>
         <button
           onClick={() => setShowAddForm(!showAddForm)}
           className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
         >
-          {showAddForm ? '取消' : '添加账户'}
+          {showAddForm ? 'Cancel' : 'Add Account'}
         </button>
       </div>
 
       {/* Add Form */}
       {showAddForm && (
         <div className="bg-white rounded-xl shadow p-6">
-          <h3 className="font-semibold mb-4">添加新的广告账户</h3>
+          <h3 className="font-semibold mb-4">Add New Ad Account</h3>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -150,14 +150,14 @@ export default function AccountSettings() {
                 type="submit"
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
               >
-                添加
+                Add Account
               </button>
               <button
                 type="button"
                 onClick={() => setShowAddForm(false)}
                 className="px-4 py-2 border rounded-lg hover:bg-gray-50"
               >
-                取消
+                Cancel
               </button>
             </div>
           </form>
@@ -170,12 +170,12 @@ export default function AccountSettings() {
       ) : accounts.length === 0 ? (
         <div className="bg-white rounded-xl shadow p-8 text-center">
           <div className="text-4xl mb-4">🔗</div>
-          <p className="text-gray-500">还没有连接任何广告账户</p>
+          <p className="text-gray-500">No ad accounts connected yet</p>
           <button
             onClick={() => setShowAddForm(true)}
             className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
           >
-            添加您的第一个账户
+            Add Your First Account
           </button>
         </div>
       ) : (
@@ -204,19 +204,19 @@ export default function AccountSettings() {
                     onClick={() => handleSync(account.id)}
                     className="px-3 py-1 text-sm border rounded hover:bg-gray-50"
                   >
-                    同步
+                    Sync
                   </button>
                   <button
                     onClick={() => handleDelete(account.id)}
                     className="px-3 py-1 text-sm text-red-600 border border-red-200 rounded hover:bg-red-50"
                   >
-                    移除
+                    Remove
                   </button>
                 </div>
               </div>
               {account.last_sync_at && (
                 <div className="mt-2 text-sm text-gray-500">
-                  最后同步: {new Date(account.last_sync_at).toLocaleString()}
+                  Last sync: {new Date(account.last_sync_at).toLocaleString()}
                 </div>
               )}
             </div>

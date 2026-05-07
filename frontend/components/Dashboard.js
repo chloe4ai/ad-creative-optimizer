@@ -56,7 +56,7 @@ export default function Dashboard({ stats }) {
           <div className="text-4xl font-bold text-red-600">
             {stats.todayAlerts}
           </div>
-          <p className="text-sm text-gray-500 mt-2">需要关注</p>
+          <p className="text-sm text-gray-500 mt-2">Needs attention</p>
         </div>
 
         {/* Quick Stats */}
@@ -82,8 +82,8 @@ export default function Dashboard({ stats }) {
       {/* Upcoming Fatigue */}
       <div className="bg-white rounded-xl shadow">
         <div className="px-6 py-4 border-b">
-          <h2 className="text-lg font-semibold">即将疲劳的创意</h2>
-          <p className="text-sm text-gray-500">这些创意预计在7天内需要更换</p>
+          <h2 className="text-lg font-semibold">Upcoming Fatigue</h2>
+          <p className="text-sm text-gray-500">These creatives may need refreshing within 7 days</p>
         </div>
         <div className="divide-y">
           {stats.upcomingFatigue?.length > 0 ? (
@@ -103,7 +103,7 @@ export default function Dashboard({ stats }) {
                 </div>
                 <div className="text-right">
                   <div className="font-medium text-red-600">
-                    {creative.days_remaining} 天
+                    {creative.days_remaining} days
                   </div>
                   <div className="text-sm text-gray-500">
                     {creative.fatigue_date && format(new Date(creative.fatigue_date), 'MM/dd')}
@@ -113,7 +113,7 @@ export default function Dashboard({ stats }) {
             ))
           ) : (
             <div className="px-6 py-8 text-center text-gray-500">
-              没有即将疲劳的创意 🎉
+              No creatives showing fatigue risk 🎉
             </div>
           )}
         </div>
@@ -121,7 +121,7 @@ export default function Dashboard({ stats }) {
 
       {/* Performance Trend */}
       <div className="bg-white rounded-xl shadow p-6">
-        <h2 className="text-lg font-semibold mb-4">7天效果趋势</h2>
+        <h2 className="text-lg font-semibold mb-4">7-Day Performance Trend</h2>
         <div className="h-64 flex items-end gap-2">
           {stats.weeklyTrend?.map((day, i) => (
             <div key={i} className="flex-1 flex flex-col items-center gap-2">
