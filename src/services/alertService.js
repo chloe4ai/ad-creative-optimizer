@@ -51,7 +51,7 @@ export class AlertService {
 
   generateMessage(creative, prediction) {
     const messages = {
-      healthy: `${creative.name} 表现良好，预计可继续使用 ${prediction.daysRemaining || '?')} 天`,
+      healthy: `${creative.name} 表现良好，预计可继续使用 ${prediction.daysRemaining || '?'} 天`,
       warning: `${creative.name} 出现疲劳迹象，建议准备新素材。剩余寿命约 ${prediction.daysRemaining || '?'} 天`,
       fatigued: `${creative.name} 已疲劳，建议立即暂停或更换素材`,
     };
