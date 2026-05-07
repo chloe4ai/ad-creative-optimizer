@@ -87,7 +87,7 @@ export class GoogleAdsAdapter extends BaseAdapter {
       impressions: Number(row.metrics.impressions),
       clicks: Number(row.metrics.clicks),
       conversions: Number(row.metrics.conversions),
-      spend: row.metrics.cost_micros / 1000000, // 微转元
+      spend: row.metrics.cost_micros / 1000000,
       ctr: row.metrics.ctr,
       cvr: row.metrics.conversions_from_interactions_rate,
     }));
@@ -124,6 +124,40 @@ export class GoogleAdsAdapter extends BaseAdapter {
       'TEXT_AD': 'text',
     };
     return typeMap[adType] || 'image';
+  }
+
+  async pauseCreative(creativeId, creativeData) {
+    try {
+      const customer = this.client.Customer({ customer_id: this.config.customerId });
+      const adGroupAdResource = `customers/${this.config.customerId}/adGroupAds/${creativeData.adsetId}~${creativeId}`;
+
+      const response = await customer.adGroupAds.patch({
+        resource_name: adGroupAdResource,
+        status: 'PAUSED',
+      });
+
+      return { success: true, message: `Creative ${creativeId} paused on Google Ads` };
+    } catch (error) {
+      console.error(`Google pauseCreative error for ${creativeId}:`, error);
+      throw new Error(`Failed to pause Google creative: ${error.message}`);
+    }
+  }
+
+  async rotateCreative(creativeId, creativeData) {
+    try {
+      const customer = this.client.Customer({ customer_id: this.config.customerId });
+      const adGroupAdResource = `customers/${this.config.customerId}/adGroupAds/${creativeData.adsetId}~${creativeId}`;
+
+      const response = await customer.adGroupAds.patch({
+        resource_name: adGroupAdResource,
+        status: 'PAUSED',
+      });
+
+      return { success: true, message: `Creative ${creativeId} marked for rotation on Google Ads` };
+    } catch (error) {
+      console.error(`Google rotateCreative error for ${creativeId}:`, error);
+      throw new Error(`Failed to rotate Google creative: ${error.message}`);
+    }
   }
 }
 
