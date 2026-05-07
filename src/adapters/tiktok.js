@@ -88,6 +88,32 @@ export class TikTokAdsAdapter extends BaseAdapter {
       status: raw.status,
     };
   }
+
+  async pauseCreative(creativeId, creativeData) {
+    try {
+      const response = await this.apiClient.post('/campaign/update/', {
+        campaign_ids: [creativeData.campaign_id],
+        operation: [{ field: 'status', value: 'PAUSE' }],
+      });
+      return { success: true, message: `Creative ${creativeId} paused on TikTok` };
+    } catch (error) {
+      console.error(`TikTok pauseCreative error for ${creativeId}:`, error);
+      throw new Error(`Failed to pause TikTok creative: ${error.message}`);
+    }
+  }
+
+  async rotateCreative(creativeId, creativeData) {
+    try {
+      const response = await this.apiClient.post('/campaign/update/', {
+        campaign_ids: [creativeData.campaign_id],
+        operation: [{ field: 'status', value: 'PAUSE' }],
+      });
+      return { success: true, message: `Creative ${creativeId} marked for rotation on TikTok` };
+    } catch (error) {
+      console.error(`TikTok rotateCreative error for ${creativeId}:`, error);
+      throw new Error(`Failed to rotate TikTok creative: ${error.message}`);
+    }
+  }
 }
 
 export default TikTokAdsAdapter;

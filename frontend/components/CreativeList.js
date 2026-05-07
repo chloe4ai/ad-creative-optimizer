@@ -5,6 +5,7 @@ import { fetchAPI } from '../lib/api';
 export default function CreativeList() {
   const [creatives, setCreatives] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState(null);
   const [filter, setFilter] = useState({ platform: '', status: '' });
 
   useEffect(() => {
@@ -23,6 +24,34 @@ export default function CreativeList() {
       console.error('Failed to fetch creatives:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handlePause = async (creative) => {
+    if (!confirm(`Pause "${creative.name}"? This will stop the ad on ${creative.platform}.`)) return;
+    setActionLoading(creative.id);
+    try {
+      const result = await fetchAPI(`/api/creatives/${creative.id}/pause`, { method: 'POST' });
+      alert(result.message || 'Creative paused successfully');
+      fetchCreatives();
+    } catch (error) {
+      alert(`Failed to pause: ${error.message}`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleRotate = async (creative) => {
+    if (!confirm(`Mark "${creative.name}" for rotation? This will pause it and flag it for a new creative.`)) return;
+    setActionLoading(creative.id);
+    try {
+      const result = await fetchAPI(`/api/creatives/${creative.id}/rotate`, { method: 'POST' });
+      alert(result.message || 'Creative marked for rotation');
+      fetchCreatives();
+    } catch (error) {
+      alert(`Failed to rotate: ${error.message}`);
+    } finally {
+      setActionLoading(null);
     }
   };
 
@@ -87,17 +116,18 @@ export default function CreativeList() {
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Days Left</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Recommendation</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Last Updated</th>
             </tr>
           </thead>
           <tbody className="divide-y">
             {loading ? (
               <tr>
-                <td colSpan={6} className="px-6 py-8 text-center">Loading...</td>
+                <td colSpan={7} className="px-6 py-8 text-center">Loading...</td>
               </tr>
             ) : creatives.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
+                <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
                   No creatives found. Add an ad account to get started.
                 </td>
               </tr>
@@ -140,6 +170,31 @@ export default function CreativeList() {
                     <span className={getRecommendationBadge(creative.recommendation)}>
                       {creative.recommendation || 'keep'}
                     </span>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="flex items-center gap-2">
+                      {creative.recommendation !== 'keep' && (
+                        <>
+                          <button
+                            onClick={() => handleRotate(creative)}
+                            disabled={actionLoading === creative.id}
+                            className="px-3 py-1 text-xs font-medium bg-orange-100 text-orange-800 rounded hover:bg-orange-200 disabled:opacity-50"
+                          >
+                            {actionLoading === creative.id ? '...' : 'Rotate'}
+                          </button>
+                          <button
+                            onClick={() => handlePause(creative)}
+                            disabled={actionLoading === creative.id}
+                            className="px-3 py-1 text-xs font-medium bg-red-100 text-red-800 rounded hover:bg-red-200 disabled:opacity-50"
+                          >
+                            {actionLoading === creative.id ? '...' : 'Pause'}
+                          </button>
+                        </>
+                      )}
+                      {creative.recommendation === 'keep' && (
+                        <span className="text-xs text-gray-400">—</span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-500">
                     {creative.updated_at && format(new Date(creative.updated_at), 'MM/dd HH:mm')}

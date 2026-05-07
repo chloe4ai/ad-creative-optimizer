@@ -72,7 +72,6 @@ export class MetaAdsAdapter extends BaseAdapter {
       level: 'ad',
     };
 
-    // 使用insights API
     const response = await adReportRun.get('/' + creativeId + '/insights', fields, params);
 
     return response.data.map(day => ({
@@ -105,6 +104,30 @@ export class MetaAdsAdapter extends BaseAdapter {
       description: raw.body || '',
       status: raw.status,
     };
+  }
+
+  async pauseCreative(creativeId, creativeData) {
+    try {
+      const Ad = MetaBusiness.Ad;
+      const ad = new Ad(creativeId);
+      await ad.update([{ field: 'Ad.status', value: 'PAUSED' }]);
+      return { success: true, message: `Creative ${creativeId} paused on Meta` };
+    } catch (error) {
+      console.error(`Meta pauseCreative error for ${creativeId}:`, error);
+      throw new Error(`Failed to pause Meta creative: ${error.message}`);
+    }
+  }
+
+  async rotateCreative(creativeId, creativeData) {
+    try {
+      const Ad = MetaBusiness.Ad;
+      const ad = new Ad(creativeId);
+      await ad.update([{ field: 'Ad.status', value: 'PAUSED' }]);
+      return { success: true, message: `Creative ${creativeId} marked for rotation on Meta` };
+    } catch (error) {
+      console.error(`Meta rotateCreative error for ${creativeId}:`, error);
+      throw new Error(`Failed to rotate Meta creative: ${error.message}`);
+    }
   }
 }
 

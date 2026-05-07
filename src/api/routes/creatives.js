@@ -166,7 +166,6 @@ router.post('/:id/sync', async (req, res) => {
     const creative = creativeResult.rows[0];
     const syncService = req.app.locals.syncService;
 
-    // 获取账户配置
     const accountConfig = await req.app.locals.db.query(
       'SELECT * FROM ad_accounts WHERE id = $1',
       [creative.ad_account_id]
@@ -176,7 +175,6 @@ router.post('/:id/sync', async (req, res) => {
     const { adapterFactory } = await import('../adapters/index.js');
     const adapter = adapterFactory(creative.platform, {
       accessToken: account.access_token_encrypted,
-      // ... other config
     });
 
     const endDate = new Date().toISOString().split('T')[0];
@@ -188,7 +186,6 @@ router.post('/:id/sync', async (req, res) => {
     const predictor = new FatiguePredictor();
     const prediction = predictor.predict(dailyMetrics);
 
-    // 更新数据
     await syncService.storeCreativeData(
       { ...creative, id: creative.creative_id },
       dailyMetrics,
@@ -199,6 +196,112 @@ router.post('/:id/sync', async (req, res) => {
     res.json({ success: true, prediction });
   } catch (error) {
     console.error('Error syncing creative:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 暂停创意
+router.post('/:id/pause', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const creativeResult = await req.app.locals.db.query(
+      'SELECT * FROM creatives WHERE id = $1',
+      [id]
+    );
+
+    if (creativeResult.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Creative not found' });
+    }
+
+    const creative = creativeResult.rows[0];
+
+    const accountConfig = await req.app.locals.db.query(
+      'SELECT * FROM ad_accounts WHERE id = $1',
+      [creative.ad_account_id]
+    );
+
+    if (accountConfig.rows.length === 0) {
+      return res.status(400).json({ success: false, error: 'Ad account not found' });
+    }
+
+    const account = accountConfig.rows[0];
+    const { adapterFactory } = await import('../adapters/index.js');
+
+    const adapterConfig = { accessToken: account.access_token_encrypted };
+    if (creative.platform === 'google') {
+      adapterConfig.developerToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
+      adapterConfig.clientId = process.env.GOOGLE_ADS_CLIENT_ID;
+      adapterConfig.clientSecret = process.env.GOOGLE_ADS_CLIENT_SECRET;
+      adapterConfig.refreshToken = process.env.GOOGLE_ADS_REFRESH_TOKEN;
+      adapterConfig.customerId = account.account_id;
+    }
+
+    const adapter = adapterFactory(creative.platform, adapterConfig);
+    const result = await adapter.pauseCreative(creative.creative_id, creative);
+
+    await req.app.locals.db.query(
+      `INSERT INTO alerts (creative_id, alert_type, severity, message, metrics_snapshot, is_resolved)
+       VALUES ($1, 'creative_paused', 'info', $2, $3, false)`,
+      [id, result.message, JSON.stringify({ action: 'pause', creative })]
+    );
+
+    res.json({ success: true, message: result.message });
+  } catch (error) {
+    console.error('Error pausing creative:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 标记创意轮换
+router.post('/:id/rotate', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const creativeResult = await req.app.locals.db.query(
+      'SELECT * FROM creatives WHERE id = $1',
+      [id]
+    );
+
+    if (creativeResult.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Creative not found' });
+    }
+
+    const creative = creativeResult.rows[0];
+
+    const accountConfig = await req.app.locals.db.query(
+      'SELECT * FROM ad_accounts WHERE id = $1',
+      [creative.ad_account_id]
+    );
+
+    if (accountConfig.rows.length === 0) {
+      return res.status(400).json({ success: false, error: 'Ad account not found' });
+    }
+
+    const account = accountConfig.rows[0];
+    const { adapterFactory } = await import('../adapters/index.js');
+
+    const adapterConfig = { accessToken: account.access_token_encrypted };
+    if (creative.platform === 'google') {
+      adapterConfig.developerToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
+      adapterConfig.clientId = process.env.GOOGLE_ADS_CLIENT_ID;
+      adapterConfig.clientSecret = process.env.GOOGLE_ADS_CLIENT_SECRET;
+      adapterConfig.refreshToken = process.env.GOOGLE_ADS_REFRESH_TOKEN;
+      adapterConfig.customerId = account.account_id;
+    }
+
+    const adapter = adapterFactory(creative.platform, adapterConfig);
+    const result = await adapter.rotateCreative(creative.creative_id, creative);
+
+    await req.app.locals.db.query(
+      `INSERT INTO alerts (creative_id, alert_type, severity, message, metrics_snapshot, is_resolved)
+       VALUES ($1, 'creative_rotation', 'warning', $2, $3, false)`,
+      [id, result.message, JSON.stringify({ action: 'rotate', creative })]
+    );
+
+    res.json({ success: true, message: result.message });
+  } catch (error) {
+    console.error('Error rotating creative:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
