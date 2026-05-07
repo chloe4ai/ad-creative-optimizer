@@ -15,7 +15,7 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "node-cron": "^3.0.3",
-    "@google-ads/api": "^19.0.0",
+    "@googleads/google-ads-js": "^19.0.0",
     "facebook-nodejs-business-sdk": "^19.0.0",
     "axios": "^1.6.7",
     "pg": "^8.11.3",
