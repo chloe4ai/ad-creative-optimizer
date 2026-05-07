@@ -1,6 +1,5 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
-// Demo data for when API is unavailable
 const DEMO_DATA = {
   '/api/analytics/dashboard': {
     data: {
@@ -87,33 +86,26 @@ const DEMO_DATA = {
   },
 };
 
-// Track which creatives have been paused/rotated in demo mode
-const demoActions = new Set();
-
 export async function fetchAPI(endpoint, options = {}) {
   const method = options.method || 'GET';
 
-  // Handle demo pause/rotate endpoints
+  // Always handle demo pause/rotate — return mock response without hitting real API
   if (method === 'POST') {
-    const pauseMatch = endpoint.match(/^\/api\/creatives\/(\d+)\/pause$/);
-    const rotateMatch = endpoint.match(/^\/api\/creatives\/(\d+)\/rotate$/);
-
-    if (pauseMatch || rotateMatch) {
-      const creativeId = parseInt(pauseMatch ? pauseMatch[1] : rotateMatch[1]);
-      const action = pauseMatch ? 'pause' : 'rotate';
-      const creative = DEMO_DATA['/api/creatives'].data.find(c => c.id === creativeId);
-
+    const creativeIdMatch = endpoint.match(/^\/api\/creatives\/(\d+)\/(pause|rotate)$/);
+    if (creativeIdMatch) {
+      const id = parseInt(creativeIdMatch[1]);
+      const action = creativeIdMatch[2];
+      const creative = DEMO_DATA['/api/creatives'].data.find(c => c.id === id);
       if (creative) {
-        demoActions.add(`${action}_${creativeId}`);
         return {
           success: true,
-          message: `[DEMO] ${creative.name} ${action === 'pause' ? 'paused' : 'marked for rotation'} on ${creative.platform}`,
+          message: `[DEMO] "${creative.name}" has been ${action === 'pause' ? 'PAUSED' : 'MARKED FOR ROTATION'} on ${creative.platform}. Changes will take effect within a few minutes.`,
         };
       }
     }
   }
 
-  // Try real API first
+  // Try real API if configured
   if (API_URL) {
     try {
       const url = `${API_URL}${endpoint}`;
@@ -126,24 +118,18 @@ export async function fetchAPI(endpoint, options = {}) {
       });
 
       if (response.ok) {
-        const data = await response.json();
-        // If real API returns empty data, fall back to demo
-        if (data.data && Array.isArray(data.data) && data.data.length === 0) {
-          const demo = DEMO_DATA[endpoint];
-          if (demo) return demo;
-        }
-        return data;
+        return response.json();
       }
     } catch (error) {
-      // Fall through to demo data
+      // Real API unavailable — fall through to demo data
     }
   }
 
-  // Return demo data if real API fails or is not configured
+  // Use demo data
   const demo = DEMO_DATA[endpoint];
   if (demo) {
     return demo;
   }
 
-  throw new Error(`API Error: endpoint not found and no demo data for ${endpoint}`);
+  throw new Error(`API Error: ${endpoint} not found`);
 }
