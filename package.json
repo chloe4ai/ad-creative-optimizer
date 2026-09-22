@@ -2,11 +2,12 @@
   "name": "ad-creative-optimizer",
   "version": "0.1.0",
   "description": "AI-powered ad creative fatigue prediction and optimization tool",
+  "type": "module",
   "main": "src/api/index.js",
   "scripts": {
     "dev": "nodemon src/api/index.js",
     "start": "node src/api/index.js",
-    "test": "jest",
+    "test": "node --test test/prediction.test.js",
     "dev:frontend": "cd frontend && npm run dev",
     "build:frontend": "cd frontend && npm run build"
   },
@@ -25,7 +26,6 @@
     "nodemailer": "^6.9.9"
   },
   "devDependencies": {
-    "nodemon": "^3.1.0",
-    "jest": "^29.7.0"
+    "nodemon": "^3.1.0"
   }
 }
