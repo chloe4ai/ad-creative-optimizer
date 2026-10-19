@@ -3,6 +3,8 @@ import cors from 'cors';
 import { config } from 'dotenv';
 import { Pool } from 'pg';
 import { SyncService } from '../services/syncService.js';
+import { getApiKey, getAllowedOrigins } from '../config.js';
+import { requireApiKey } from './middleware/apiKey.js';
 
 import creativesRouter from './routes/creatives.js';
 import accountsRouter from './routes/accounts.js';
@@ -13,8 +15,22 @@ config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Fail closed: refuse to start without the secrets the API depends on.
+let apiKey;
+let allowedOrigins;
+try {
+  apiKey = getApiKey();
+  allowedOrigins = getAllowedOrigins();
+} catch (error) {
+  console.error(`Configuration error: ${error.message}`);
+  process.exit(1);
+}
+if (allowedOrigins.length === 0) {
+  console.warn('FRONTEND_ORIGIN is not set: no browser origin is allowed to call the API (CORS).');
+}
+
 // Middleware
-app.use(cors());
+app.use(cors({ origin: allowedOrigins }));
 app.use(express.json());
 
 // Database connection
@@ -52,7 +68,8 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// API Routes
+// API Routes: every /api route requires the shared secret; /health stays open for probes.
+app.use('/api', requireApiKey(apiKey));
 app.use('/api/creatives', creativesRouter);
 app.use('/api/accounts', accountsRouter);
 app.use('/api/analytics', analyticsRouter);

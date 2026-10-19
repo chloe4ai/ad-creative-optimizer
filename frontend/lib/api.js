@@ -1,4 +1,8 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
+// Shared secret the API requires in `x-api-key`. NEXT_PUBLIC_ values are compiled into the
+// browser bundle, so this only keeps strangers out of a private deployment; it is not
+// per-user auth. Leave it unset for the sample-data demo.
+const API_KEY = process.env.NEXT_PUBLIC_API_KEY || '';
 
 // True when the build points at a real backend. When false every response is sample data.
 export const API_CONFIGURED = Boolean(API_URL);
@@ -140,6 +144,7 @@ export async function fetchAPI(endpoint, options = {}) {
       ...options,
       headers: {
         'Content-Type': 'application/json',
+        ...(API_KEY ? { 'x-api-key': API_KEY } : {}),
         ...options.headers,
       },
     });
