@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { SUPPORTED_PLATFORMS } from '../../adapters/index.js';
 
 const router = Router();
 
@@ -28,6 +29,13 @@ router.post('/', async (req, res) => {
       return res.status(400).json({
         success: false,
         error: 'Missing required fields: platform, accountId, accessToken',
+      });
+    }
+
+    if (!SUPPORTED_PLATFORMS.includes(platform)) {
+      return res.status(400).json({
+        success: false,
+        error: `Unsupported platform: ${platform}. Supported: ${SUPPORTED_PLATFORMS.join(', ')}`,
       });
     }
 

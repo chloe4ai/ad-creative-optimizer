@@ -2,10 +2,50 @@ import { Router } from 'express';
 
 const router = Router();
 
+const MAX_LIMIT = 100;
+
+/**
+ * 解析分页参数：非数字或负数返回 null（调用方回 400），limit 上限 MAX_LIMIT。
+ */
+function parseNonNegativeInt(value, fallback) {
+  if (value === undefined || value === '') return fallback;
+  if (!/^\d+$/.test(String(value))) return null;
+  const n = Number.parseInt(value, 10);
+  return Number.isSafeInteger(n) ? n : null;
+}
+
+function parseLimit(value, fallback) {
+  const n = parseNonNegativeInt(value, fallback);
+  if (n === null) return null;
+  return Math.min(Math.max(n, 1), MAX_LIMIT);
+}
+
+// 生产环境不把内部错误信息（SQL、上游 API 报错）回给客户端
+function sendServerError(res, error) {
+  const message = process.env.NODE_ENV === 'production' ? 'Internal server error' : error.message;
+  res.status(500).json({ success: false, error: message });
+}
+
+// 所有带 :id 的路由：id 必须是正整数（creatives.id 是 SERIAL）
+router.param('id', (req, res, next, id) => {
+  if (!/^\d+$/.test(id)) {
+    return res.status(400).json({ success: false, error: 'Invalid creative id' });
+  }
+  next();
+});
+
 // 获取所有创意（支持筛选）
 router.get('/', async (req, res) => {
   try {
-    const { platform, status, limit = 50, offset = 0 } = req.query;
+    const { platform, status } = req.query;
+    const limit = parseLimit(req.query.limit, 50);
+    const offset = parseNonNegativeInt(req.query.offset, 0);
+    if (limit === null || offset === null) {
+      return res.status(400).json({
+        success: false,
+        error: 'limit and offset must be non-negative integers',
+      });
+    }
 
     let query = `
       SELECT
@@ -34,7 +74,7 @@ router.get('/', async (req, res) => {
     }
 
     query += ` ORDER BY c.updated_at DESC LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
-    params.push(parseInt(limit), parseInt(offset));
+    params.push(limit, offset);
 
     const result = await req.app.locals.db.query(query, params);
 
@@ -42,13 +82,13 @@ router.get('/', async (req, res) => {
       success: true,
       data: result.rows,
       pagination: {
-        limit: parseInt(limit),
-        offset: parseInt(offset),
+        limit,
+        offset,
       },
     });
   } catch (error) {
     console.error('Error fetching creatives:', error);
-    res.status(500).json({ success: false, error: error.message });
+    sendServerError(res, error);
   }
 });
 
@@ -97,14 +137,18 @@ router.get('/:id', async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching creative:', error);
-    res.status(500).json({ success: false, error: error.message });
+    sendServerError(res, error);
   }
 });
 
 // 获取疲劳预警列表
 router.get('/alerts/list', async (req, res) => {
   try {
-    const { severity, limit = 20 } = req.query;
+    const { severity } = req.query;
+    const limit = parseLimit(req.query.limit, 20);
+    if (limit === null) {
+      return res.status(400).json({ success: false, error: 'limit must be a non-negative integer' });
+    }
 
     let query = `
       SELECT a.*, c.creative_id as external_id, c.platform, c.name as creative_name
@@ -121,14 +165,14 @@ router.get('/alerts/list', async (req, res) => {
     }
 
     query += ` ORDER BY a.created_at DESC LIMIT $${paramIndex++}`;
-    params.push(parseInt(limit));
+    params.push(limit);
 
     const result = await req.app.locals.db.query(query, params);
 
     res.json({ success: true, data: result.rows });
   } catch (error) {
     console.error('Error fetching alerts:', error);
-    res.status(500).json({ success: false, error: error.message });
+    sendServerError(res, error);
   }
 });
 
@@ -145,7 +189,7 @@ router.post('/sync', async (req, res) => {
     });
   } catch (error) {
     console.error('Error triggering sync:', error);
-    res.status(500).json({ success: false, error: error.message });
+    sendServerError(res, error);
   }
 });
 
@@ -196,7 +240,7 @@ router.post('/:id/sync', async (req, res) => {
     res.json({ success: true, prediction });
   } catch (error) {
     console.error('Error syncing creative:', error);
-    res.status(500).json({ success: false, error: error.message });
+    sendServerError(res, error);
   }
 });
 
@@ -249,7 +293,7 @@ router.post('/:id/pause', async (req, res) => {
     res.json({ success: true, message: result.message });
   } catch (error) {
     console.error('Error pausing creative:', error);
-    res.status(500).json({ success: false, error: error.message });
+    sendServerError(res, error);
   }
 });
 
@@ -302,7 +346,7 @@ router.post('/:id/rotate', async (req, res) => {
     res.json({ success: true, message: result.message });
   } catch (error) {
     console.error('Error rotating creative:', error);
-    res.status(500).json({ success: false, error: error.message });
+    sendServerError(res, error);
   }
 });
 
