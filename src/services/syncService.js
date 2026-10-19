@@ -9,13 +9,15 @@ export class SyncService {
     this.predictor = new FatiguePredictor();
     this.alertService = new AlertService(config.alert);
     this.platforms = config.platforms || ['google', 'meta', 'tiktok'];
+    // 可注入，测试时用 stub adapter
+    this.adapterFactory = config.adapterFactory || adapterFactory;
   }
 
   /**
    * 同步单个账户的创意数据
    */
   async syncAccount(platform, accountConfig) {
-    const adapter = adapterFactory(platform, accountConfig);
+    const adapter = this.adapterFactory(platform, accountConfig);
     const creatives = await adapter.getCreatives(accountConfig.accountId);
 
     const results = [];
@@ -32,13 +34,15 @@ export class SyncService {
           endDate
         );
 
-        // 预测疲劳
-        const prediction = this.predictor.predict(dailyMetrics);
+        // 预测疲劳 —— 必须带上平台，否则一律套用 Meta 的频次上限 5
+        const prediction = this.predictor.predict(dailyMetrics, {
+          platform: creative.platform || platform,
+        });
 
         // 检查是否需要预警
         const previousPrediction = await this.getPreviousPrediction(creative.id);
         const { alert } = await this.alertService.checkAndAlert(
-          creative,
+          { ...creative, platform: creative.platform || platform },
           dailyMetrics,
           previousPrediction
         );
@@ -70,11 +74,18 @@ export class SyncService {
    * 同步所有活跃账户
    */
   async syncAllAccounts() {
-    const accounts = await this.db.getActiveAccounts();
+    const { rows: accounts } = await this.db.query(
+      'SELECT * FROM ad_accounts WHERE is_active = true'
+    );
     const results = [];
 
     for (const account of accounts) {
-      const result = await this.syncAccount(account.platform, account);
+      // 与 accounts.js 的手动同步保持同一套字段映射
+      const result = await this.syncAccount(account.platform, {
+        accountId: account.account_id,
+        accessToken: account.access_token_encrypted,
+        refreshToken: account.refresh_token_encrypted,
+      });
       results.push(...result);
     }
 
@@ -92,7 +103,8 @@ export class SyncService {
        LIMIT 1`,
       [creativeId]
     );
-    return result.rows[0] || null;
+    // DB 行是 snake_case（days_remaining），统一成预测结果的形状再比较
+    return FatiguePredictor.normalizePrediction(result.rows[0]);
   }
 
   /**
@@ -199,9 +211,13 @@ export class SyncService {
   startScheduledSync(schedule = '0 */6 * * *') {
     // Every 6 hours
     cron.schedule(schedule, async () => {
-      console.log('Starting scheduled sync...');
-      const results = await this.syncAllAccounts();
-      console.log(`Sync completed. Processed ${results.length} creatives.`);
+      try {
+        console.log('Starting scheduled sync...');
+        const results = await this.syncAllAccounts();
+        console.log(`Sync completed. Processed ${results.length} creatives.`);
+      } catch (error) {
+        console.error('Scheduled sync failed:', error);
+      }
     });
 
     console.log(`Scheduled sync started with cron: ${schedule}`);

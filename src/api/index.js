@@ -72,7 +72,12 @@ app.listen(PORT, () => {
 
   // Start scheduled sync (every 6 hours)
   if (process.env.AUTO_SYNC !== 'false') {
-    syncService.startScheduledSync('0 */6 * * *');
+    try {
+      // startScheduledSync wraps each cron run in its own try/catch
+      syncService.startScheduledSync('0 */6 * * *');
+    } catch (error) {
+      console.error('Failed to start scheduled sync:', error);
+    }
   }
 });
 

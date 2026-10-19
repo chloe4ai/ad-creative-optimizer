@@ -15,7 +15,46 @@ export class FatiguePredictor {
       },
       consecutiveDays: 3,         // 连续天数才触发
       maxHorizonDays: 90,         // 预测最远只看 90 天
+      minDataDays: 3,             // 至少 3 天有曝光的数据才给预测
     };
+  }
+
+  /**
+   * 把输入清洗成可分析的序列：
+   * - 数值字段统一 Number()，pg 的 DECIMAL 会以字符串返回，直接相加会变成字符串拼接 / NaN
+   * - 有日期时按日期升序排列
+   * - 丢掉 impressions === 0 的空白天（没投放的日子不代表素材疲劳）
+   */
+  normalizeMetrics(dailyMetrics) {
+    const toNum = (v) => {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : 0;
+    };
+    const numericFields = ['ctr', 'cvr', 'roas', 'frequency', 'spend', 'clicks', 'conversions', 'cpc'];
+
+    const rows = dailyMetrics.map((day) => {
+      const row = { ...day };
+      for (const field of numericFields) {
+        if (field in row) row[field] = toNum(row[field]);
+      }
+      // impressions 缺失时保持缺失（无法判断是否为空白天），有值时转成数字
+      if (row.impressions !== undefined && row.impressions !== null) {
+        row.impressions = toNum(row.impressions);
+      }
+      return row;
+    });
+
+    // 只有每一天都带可解析日期时才排序，否则保持调用方给的顺序
+    const timeOf = (row) => {
+      const date = row.date ?? row.metric_date;
+      if (date === undefined || date === null) return NaN;
+      return new Date(date).getTime();
+    };
+    if (rows.length > 0 && rows.every((row) => Number.isFinite(timeOf(row)))) {
+      rows.sort((a, b) => timeOf(a) - timeOf(b));
+    }
+
+    return rows.filter((row) => row.impressions !== 0);
   }
 
   /**
@@ -24,10 +63,18 @@ export class FatiguePredictor {
    * @param {Object} options - 预测选项；options.platform 决定用哪个平台的频次上限
    * @returns {Object} 预测结果
    */
-  predict(dailyMetrics, options = {}) {
-    if (!dailyMetrics || dailyMetrics.length < 3) {
+  predict(rawMetrics, options = {}) {
+    if (!Array.isArray(rawMetrics)) {
       return this.getInsufficientDataPrediction();
     }
+
+    const dailyMetrics = this.normalizeMetrics(rawMetrics);
+    if (dailyMetrics.length < this.thresholds.minDataDays) {
+      return this.getInsufficientDataPrediction();
+    }
+
+    // options.now 便于测试注入「今天」
+    const now = options.now ? new Date(options.now) : new Date();
 
     // 对比窗口最多 7 天，但不能超过序列的一半 —— 否则基准段会被切空，
     // 一切都会跟 0 比较，短生命周期的素材永远显示 healthy。
@@ -51,7 +98,7 @@ export class FatiguePredictor {
     const status = this.determineStatus(metricsChange);
 
     // 计算剩余寿命
-    const fatigueDate = this.estimateFatigueDate(metricsChange, spanDays);
+    const fatigueDate = this.estimateFatigueDate(metricsChange, spanDays, now);
 
     // 生成建议
     const recommendation = this.generateRecommendation(status, metricsChange);
@@ -60,7 +107,7 @@ export class FatiguePredictor {
       status,
       metricsChange,
       fatigueDate,
-      daysRemaining: this.calculateDaysRemaining(fatigueDate),
+      daysRemaining: this.calculateDaysRemaining(fatigueDate, now),
       confidence: this.calculateConfidence(dailyMetrics.length),
       recommendation,
       window,
@@ -184,22 +231,22 @@ export class FatiguePredictor {
    * change 是「一个 spanDays 长的窗口」上的总跌幅，不是日跌幅 —— 必须先开 spanDays 次方
    * 换成日衰减率，否则单位差了近一个数量级。
    */
-  estimateFatigueDate(metricsChange, spanDays) {
+  estimateFatigueDate(metricsChange, spanDays, now = new Date()) {
     const { ctr } = metricsChange;
 
     if (ctr.baseline === 0 || ctr.change >= 0) {
-      // 还在上升或稳定，预估 14 天后疲劳
-      return this.addDays(new Date(), 14);
+      // 还在上升或稳定：没有下降趋势可外推，不给疲劳日期（前端显示 stable）
+      return null;
     }
 
     const retention = 1 + ctr.change;           // 窗口留存率，落在 [0, 1)
-    if (retention <= 0) return this.addDays(new Date(), 1);  // 已经归零
+    if (retention <= 0) return this.addDays(now, 1);  // 已经归零
 
     const dailyRetention = Math.pow(retention, 1 / spanDays);
     const daysToFatigue = Math.log(0.5) / Math.log(dailyRetention);
 
     const clamped = Math.max(1, Math.min(this.thresholds.maxHorizonDays, Math.round(daysToFatigue)));
-    return this.addDays(new Date(), clamped);
+    return this.addDays(now, clamped);
   }
 
   estimateDecayRate(metricsChange) {
@@ -209,11 +256,12 @@ export class FatiguePredictor {
     return avgChange < 0 ? Math.abs(avgChange) : 0.01;
   }
 
-  calculateDaysRemaining(fatigueDate) {
-    const today = new Date();
-    const diff = fatigueDate - today;
+  calculateDaysRemaining(fatigueDate, now = new Date()) {
+    if (!fatigueDate) return null;
+    const diff = fatigueDate.getTime() - now.getTime();
     if (!Number.isFinite(diff)) return null;
-    return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
+    // fatigueDate 是用 UTC 毫秒加出来的整天数，round 不受夏令时影响
+    return Math.max(0, Math.round(diff / 864e5));
   }
 
   generateRecommendation(status, metricsChange) {
@@ -248,34 +296,58 @@ export class FatiguePredictor {
       daysRemaining: null,
       confidence: 0,
       recommendation: 'keep',
-      message: '数据不足，无法预测',
+      message: 'Insufficient data to predict fatigue (need at least 3 days with impressions)',
     };
   }
 
   addDays(date, days) {
-    const result = new Date(date);
-    result.setDate(result.getDate() + days);
-    return result;
+    // UTC 毫秒运算：setDate 按本地时间走，跨夏令时会多/少一小时
+    return new Date(date.getTime() + days * 864e5);
   }
 
   /**
    * 检查是否应该触发预警
    */
   shouldAlert(prediction, previousPrediction) {
-    if (!previousPrediction) return true;
+    // healthy / unknown 不需要人处理，不发预警
+    if (!prediction || prediction.status === 'healthy' || prediction.status === 'unknown') {
+      return false;
+    }
+
+    const previous = FatiguePredictor.normalizePrediction(previousPrediction);
+    if (!previous) return true;
 
     // 状态变化时触发
-    if (prediction.status !== previousPrediction.status) {
+    if (prediction.status !== previous.status) {
       return true;
     }
 
-    // 距离疲劳天数减少超过50%时触发
-    if (previousPrediction.daysRemaining > 0 &&
-        prediction.daysRemaining < previousPrediction.daysRemaining * 0.5) {
+    // 距离疲劳天数减少超过50%时触发（任一方为 null = 趋势平稳，不比较）
+    const current = prediction.daysRemaining;
+    if (Number.isFinite(previous.daysRemaining) && previous.daysRemaining > 0 &&
+        Number.isFinite(current) && current < previous.daysRemaining * 0.5) {
       return true;
     }
 
     return false;
+  }
+
+  /**
+   * 把数据库里的 predictions 行（snake_case、DECIMAL 字符串）和内存里的预测结果
+   * 统一成同一个形状，便于比较。
+   */
+  static normalizePrediction(row) {
+    if (!row) return null;
+    const rawDays = row.daysRemaining !== undefined ? row.daysRemaining : row.days_remaining;
+    const days = rawDays === null || rawDays === undefined ? null : Number(rawDays);
+    const rawConfidence = row.confidence;
+    return {
+      status: row.status,
+      daysRemaining: Number.isFinite(days) ? days : null,
+      fatigueDate: row.fatigueDate ?? row.fatigue_date ?? null,
+      confidence: rawConfidence === null || rawConfidence === undefined ? null : Number(rawConfidence),
+      recommendation: row.recommendation ?? null,
+    };
   }
 }
 

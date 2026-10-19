@@ -165,13 +165,14 @@ test('CTR 归零不会产生 NaN 或 Invalid Date', () => {
   assert.ok(!Number.isNaN(r.fatigueDate.getTime()));
 });
 
-test('还在涨的素材给 14 天默认预测', () => {
+test('还在涨的素材不给疲劳日期（stable），不再硬编码 14 天', () => {
   const p = new FatiguePredictor();
   const rising = Array.from({ length: 14 }, (_, i) => day(0.03 + i * 0.002));
   const r = p.predict(rising);
   assert.ok(r.metricsChange.ctr.change > 0);
   assert.equal(r.status, 'healthy');
-  assert.ok(r.daysRemaining >= 13 && r.daysRemaining <= 14);
+  assert.equal(r.fatigueDate, null);
+  assert.equal(r.daysRemaining, null);
 });
 
 test('缺失字段按 0 处理，不抛异常', () => {
@@ -180,7 +181,9 @@ test('缺失字段按 0 处理，不抛异常', () => {
   const r = p.predict(partial);
   assert.equal(r.metricsChange.cvr.current, 0);
   assert.equal(r.metricsChange.frequency.current, 0);
-  assert.ok(Number.isFinite(r.daysRemaining));
+  // 平稳序列：没有衰减可外推，daysRemaining 为 null 而不是 NaN
+  assert.equal(r.daysRemaining, null);
+  assert.ok(!Number.isNaN(r.metricsChange.ctr.change));
 });
 
 test('置信度随数据量单调不降', () => {
@@ -197,19 +200,43 @@ test('置信度随数据量单调不降', () => {
 
 test('shouldAlert：首次预测、状态变化、寿命腰斩时触发', () => {
   const p = new FatiguePredictor();
-  assert.equal(p.shouldAlert({ status: 'healthy', daysRemaining: 20 }, null), true);
+  assert.equal(p.shouldAlert({ status: 'warning', daysRemaining: 20 }, null), true);
   assert.equal(
     p.shouldAlert({ status: 'warning', daysRemaining: 20 }, { status: 'healthy', daysRemaining: 20 }),
     true
   );
   assert.equal(
-    p.shouldAlert({ status: 'healthy', daysRemaining: 8 }, { status: 'healthy', daysRemaining: 20 }),
+    p.shouldAlert({ status: 'warning', daysRemaining: 8 }, { status: 'warning', daysRemaining: 20 }),
     true
   );
   assert.equal(
-    p.shouldAlert({ status: 'healthy', daysRemaining: 18 }, { status: 'healthy', daysRemaining: 20 }),
+    p.shouldAlert({ status: 'warning', daysRemaining: 18 }, { status: 'warning', daysRemaining: 20 }),
     false
   );
+});
+
+test('shouldAlert never fires for healthy or unknown', () => {
+  const p = new FatiguePredictor();
+  for (const status of ['healthy', 'unknown']) {
+    assert.equal(p.shouldAlert({ status, daysRemaining: 20 }, null), false);
+    assert.equal(p.shouldAlert({ status, daysRemaining: 2 }, { status: 'warning', daysRemaining: 20 }), false);
+    assert.equal(p.shouldAlert({ status, daysRemaining: null }, { status, daysRemaining: 20 }), false);
+  }
+});
+
+test('shouldAlert normalizes a snake_case DB row before comparing', () => {
+  const p = new FatiguePredictor();
+  // pg returns predictions rows with days_remaining, not daysRemaining
+  const dbRow = { status: 'warning', days_remaining: 20, confidence: '0.850' };
+  assert.equal(p.shouldAlert({ status: 'warning', daysRemaining: 8 }, dbRow), true);
+  assert.equal(p.shouldAlert({ status: 'warning', daysRemaining: 18 }, dbRow), false);
+  assert.equal(p.shouldAlert({ status: 'warning', daysRemaining: 8 }, { ...dbRow, days_remaining: '20' }), true);
+  // null (stable) on either side is not a "halving"
+  assert.equal(p.shouldAlert({ status: 'warning', daysRemaining: null }, dbRow), false);
+  assert.equal(p.shouldAlert({ status: 'warning', daysRemaining: 3 }, { ...dbRow, days_remaining: null }), false);
+  assert.deepEqual(FatiguePredictor.normalizePrediction(dbRow), {
+    status: 'warning', daysRemaining: 20, fatigueDate: null, confidence: 0.85, recommendation: null,
+  });
 });
 
 test('平均值算的是各天的算术平均', () => {
@@ -219,4 +246,112 @@ test('平均值算的是各天的算术平均', () => {
   assert.equal(avg.spend, 100);
   // 空数组要返回齐全的零值，包括 spend
   assert.deepEqual(p.calculateBaseline([]), { ctr: 0, cvr: 0, roas: 0, freq: 0, spend: 0 });
+});
+
+// ---- Input hygiene and date arithmetic -------------------------------------
+
+const DAY_MS = 864e5;
+const START = Date.UTC(2026, 8, 1); // 2026-09-01
+
+/** Dated, non-empty version of series(): what an adapter or the DB actually returns. */
+const datedSeries = (days, drop, extra = {}) =>
+  series(days, drop).map((d, i) => ({
+    ...d,
+    date: new Date(START + i * DAY_MS).toISOString().slice(0, 10),
+    impressions: 1000,
+    ...extra,
+  }));
+
+test('(a) addDays is UTC arithmetic, so a DST change does not shift daysRemaining', () => {
+  const saved = process.env.TZ;
+  process.env.TZ = 'America/Los_Angeles';
+  try {
+    const p = new FatiguePredictor();
+    // US DST ends 2026-11-01; a ~7 day forecast from here crosses it.
+    const now = new Date('2026-10-28T19:00:00Z');
+    assert.equal(p.addDays(now, 14).getTime() - now.getTime(), 14 * DAY_MS);
+    const r = p.predict(series(14, 0.5), { now });
+    assert.ok(Number.isInteger(r.daysRemaining));
+    assert.equal(r.fatigueDate.getTime() - now.getTime(), r.daysRemaining * DAY_MS);
+  } finally {
+    if (saved === undefined) delete process.env.TZ;
+    else process.env.TZ = saved;
+  }
+});
+
+test('(b) pg DECIMAL strings are coerced to numbers, not concatenated into NaN', () => {
+  const p = new FatiguePredictor();
+  const now = new Date('2026-10-01T00:00:00Z');
+  const numeric = datedSeries(14, 0.4);
+  const strings = numeric.map((d) => ({
+    ...d,
+    ctr: String(d.ctr), cvr: String(d.cvr), roas: String(d.roas),
+    frequency: String(d.frequency), spend: String(d.spend), impressions: String(d.impressions),
+  }));
+  const a = p.predict(numeric, { now });
+  const b = p.predict(strings, { now });
+  assert.ok(Number.isFinite(b.metricsChange.ctr.current));
+  assert.ok(Number.isFinite(b.metricsChange.ctr.change));
+  assert.deepEqual(b.metricsChange, a.metricsChange);
+  assert.equal(b.status, a.status);
+  assert.equal(b.daysRemaining, a.daysRemaining);
+});
+
+test('(c) input is sorted by date before analysis', () => {
+  const p = new FatiguePredictor();
+  const now = new Date('2026-10-01T00:00:00Z');
+  const sorted = datedSeries(14, 0.4);
+  // Newest-first is how the API's daily_metrics query returns rows; unsorted, a decline reads as a rise.
+  const reversed = [...sorted].reverse();
+  const a = p.predict(sorted, { now });
+  const b = p.predict(reversed, { now });
+  assert.ok(b.metricsChange.ctr.change < 0, 'reversed input was analysed as a rising series');
+  assert.deepEqual(b.metricsChange, a.metricsChange);
+  assert.equal(b.status, 'warning');
+});
+
+test('(d) zero-impression days are ignored and 3 non-empty days are required', () => {
+  const p = new FatiguePredictor();
+  const now = new Date('2026-10-01T00:00:00Z');
+
+  // Two real days plus a week of no delivery: still not enough to predict.
+  const mostlyEmpty = [
+    ...datedSeries(2, 0),
+    ...Array.from({ length: 7 }, (_, i) => ({
+      ...day(0, 0, 0, 0),
+      date: new Date(START + (2 + i) * DAY_MS).toISOString().slice(0, 10),
+      impressions: 0,
+    })),
+  ];
+  const r = p.predict(mostlyEmpty, { now });
+  assert.equal(r.status, 'unknown');
+  assert.equal(r.daysRemaining, null);
+
+  // Zero-impression days interleaved in a real series change nothing.
+  const real = datedSeries(14, 0.4);
+  const withGaps = [];
+  real.forEach((d, i) => {
+    withGaps.push(d);
+    if (i % 3 === 0) withGaps.push({ ...day(0, 0, 0, 0), date: d.date, impressions: i % 2 ? '0' : 0 });
+  });
+  const a = p.predict(real, { now });
+  const b = p.predict(withGaps, { now });
+  assert.deepEqual(b.metricsChange, a.metricsChange);
+  assert.equal(b.window, a.window);
+  assert.equal(b.confidence, a.confidence);
+});
+
+test('(e) flat or rising trend returns null fatigueDate and daysRemaining', () => {
+  const p = new FatiguePredictor();
+  const rising = Array.from({ length: 14 }, (_, i) => day(0.03 + i * 0.002));
+  for (const input of [flat(14), datedSeries(14, 0), rising]) {
+    const r = p.predict(input);
+    assert.equal(r.status, 'healthy');
+    assert.equal(r.fatigueDate, null);
+    assert.equal(r.daysRemaining, null);
+  }
+  // A real decline still gets a date.
+  const declining = p.predict(series(14, 0.4));
+  assert.ok(declining.fatigueDate instanceof Date);
+  assert.ok(Number.isFinite(declining.daysRemaining));
 });

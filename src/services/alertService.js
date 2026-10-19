@@ -9,7 +9,7 @@ export class AlertService {
   }
 
   async checkAndAlert(creative, currentMetrics, previousPrediction) {
-    const prediction = this.predictor.predict(currentMetrics);
+    const prediction = this.predictor.predict(currentMetrics, { platform: creative.platform });
 
     const shouldAlert = this.predictor.shouldAlert(prediction, previousPrediction);
 
@@ -24,12 +24,14 @@ export class AlertService {
 
   formatAlert(creative, prediction, currentMetrics) {
     const severityMap = {
+      unknown: 'info',
       healthy: 'info',
       warning: 'warning',
       fatigued: 'critical',
     };
 
     const typeMap = {
+      unknown: 'insufficient_data',
       healthy: 'performance_recovered',
       warning: 'fatigue_warning',
       fatigued: 'fatigue_detected',
@@ -49,11 +51,24 @@ export class AlertService {
     };
   }
 
+  /**
+   * daysRemaining 为 null 表示趋势平稳或上升（没有可外推的衰减），显示 stable；
+   * 状态 unknown 时才是真的不知道。
+   */
+  formatDaysRemaining(prediction) {
+    if (Number.isFinite(prediction.daysRemaining)) return String(prediction.daysRemaining);
+    return prediction.status === 'unknown' ? 'Unknown' : 'stable';
+  }
+
   generateMessage(creative, prediction) {
+    const days = Number.isFinite(prediction.daysRemaining)
+      ? `about ${prediction.daysRemaining} days`
+      : 'stable (no decline to extrapolate)';
     const messages = {
-      healthy: `${creative.name} 表现良好，预计可继续使用 ${prediction.daysRemaining || '?'} 天`,
-      warning: `${creative.name} 出现疲劳迹象，建议准备新素材。剩余寿命约 ${prediction.daysRemaining || '?'} 天`,
-      fatigued: `${creative.name} 已疲劳，建议立即暂停或更换素材`,
+      unknown: `${creative.name}: not enough data to predict fatigue yet`,
+      healthy: `${creative.name} is performing well. Estimated remaining life: ${days}`,
+      warning: `${creative.name} is showing signs of fatigue; prepare a replacement creative. Estimated remaining life: ${days}`,
+      fatigued: `${creative.name} is fatigued; pause or replace it now`,
     };
     return messages[prediction.status];
   }
@@ -86,7 +101,7 @@ export class AlertService {
             { type: 'mrkdwn', text: `*Platform:*\n${alert.platform}` },
             { type: 'mrkdwn', text: `*Creative:*\n${alert.creativeName}` },
             { type: 'mrkdwn', text: `*Severity:*\n${alert.severity}` },
-            { type: 'mrkdwn', text: `*Days Remaining:*\n${alert.prediction.daysRemaining || 'Unknown'}` },
+            { type: 'mrkdwn', text: `*Days Remaining:*\n${this.formatDaysRemaining(alert.prediction)}` },
           ],
         },
         { type: 'section', text: { type: 'mrkdwn', text: alert.message } },
@@ -147,7 +162,7 @@ export class AlertService {
         </tr>
         <tr>
           <td style="padding: 8px; border: 1px solid #ddd;"><strong>Days Remaining</strong></td>
-          <td style="padding: 8px; border: 1px solid #ddd;">${alert.prediction.daysRemaining || 'Unknown'}</td>
+          <td style="padding: 8px; border: 1px solid #ddd;">${this.formatDaysRemaining(alert.prediction)}</td>
         </tr>
         <tr>
           <td style="padding: 8px; border: 1px solid #ddd;"><strong>Recommendation</strong></td>

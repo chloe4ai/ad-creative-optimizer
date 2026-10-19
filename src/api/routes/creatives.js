@@ -184,7 +184,7 @@ router.post('/:id/sync', async (req, res) => {
 
     const { FatiguePredictor } = await import('../services/prediction.js');
     const predictor = new FatiguePredictor();
-    const prediction = predictor.predict(dailyMetrics);
+    const prediction = predictor.predict(dailyMetrics, { platform: creative.platform });
 
     await syncService.storeCreativeData(
       { ...creative, id: creative.creative_id },
