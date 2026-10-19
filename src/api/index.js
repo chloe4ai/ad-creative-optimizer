@@ -3,7 +3,7 @@ import cors from 'cors';
 import { config } from 'dotenv';
 import { Pool } from 'pg';
 import { SyncService } from '../services/syncService.js';
-import { getApiKey, getAllowedOrigins } from '../config.js';
+import { getApiKey, getAllowedOrigins, getDatabaseSsl } from '../config.js';
 import { getTokenKey } from '../services/tokenCrypto.js';
 import { requireApiKey } from './middleware/apiKey.js';
 
@@ -38,7 +38,7 @@ app.use(express.json());
 // Database connection
 const db = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  ssl: getDatabaseSsl(),
 });
 
 db.connect()

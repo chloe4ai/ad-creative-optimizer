@@ -44,3 +44,30 @@ export function getAllowedOrigins(env = process.env) {
   }
   return origins;
 }
+
+/**
+ * pg `ssl` option for the database pool.
+ *
+ * - DATABASE_SSL=true|false       force TLS on or off (default: on in production, off otherwise)
+ * - DATABASE_SSL_ALLOW_SELF_SIGNED=true   skip certificate verification. This disables
+ *   protection against man-in-the-middle attacks and is logged loudly; use it only for a
+ *   managed Postgres whose CA you cannot install, and prefer DATABASE_SSL_CA when you can.
+ * - DATABASE_SSL_CA               PEM text of the CA certificate to trust
+ */
+export function getDatabaseSsl(env = process.env, { warn = console.warn } = {}) {
+  const isProduction = env.NODE_ENV === 'production';
+  const sslEnabled = env.DATABASE_SSL === undefined ? isProduction : env.DATABASE_SSL === 'true';
+  if (!sslEnabled) return false;
+
+  const ssl = { rejectUnauthorized: true };
+  if (env.DATABASE_SSL_CA) ssl.ca = env.DATABASE_SSL_CA;
+
+  if (env.DATABASE_SSL_ALLOW_SELF_SIGNED === 'true') {
+    ssl.rejectUnauthorized = false;
+    warn(
+      'WARNING: DATABASE_SSL_ALLOW_SELF_SIGNED=true. The database certificate is NOT verified, ' +
+        'so the connection is encrypted but not authenticated. Set DATABASE_SSL_CA instead when possible.'
+    );
+  }
+  return ssl;
+}
