@@ -4,6 +4,9 @@
   "description": "AI-powered ad creative fatigue prediction and optimization tool",
   "type": "module",
   "main": "src/api/index.js",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "nodemon src/api/index.js",
     "start": "node src/api/index.js",
@@ -20,9 +23,6 @@
     "facebook-nodejs-business-sdk": "^19.0.0",
     "axios": "^1.6.7",
     "pg": "^8.11.3",
-    "redis": "^4.6.13",
-    "zod": "^3.22.4",
-    "slack-webhook": "^1.0.0",
     "nodemailer": "^6.9.9"
   },
   "devDependencies": {

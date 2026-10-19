@@ -5,3 +5,7 @@ node_modules
 dist
 build
 .vercel
+.next/
+.env.local
+.env.*.local
+coverage/
