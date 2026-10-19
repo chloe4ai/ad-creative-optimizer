@@ -102,8 +102,6 @@ export default function AccountSettings() {
                   <option value="meta">Meta Ads</option>
                   <option value="google">Google Ads</option>
                   <option value="tiktok">TikTok Ads</option>
-                  <option value="pinterest">Pinterest Ads</option>
-                  <option value="linkedin">LinkedIn Ads</option>
                 </select>
               </div>
               <div>

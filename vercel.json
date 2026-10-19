@@ -1,11 +1,5 @@
 {
   "framework": "nextjs",
   "buildCommand": "npm install && npm run build",
-  "outputDirectory": ".next",
-  "rewrites": [
-    {
-      "source": "/api/:path*",
-      "destination": "https://ad-creative-optimizer-production.up.railway.app/api/:path*"
-    }
-  ]
+  "outputDirectory": ".next"
 }

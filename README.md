@@ -2,15 +2,17 @@
 
 **Creative fatigue is a forecastable curve, not a postmortem.**
 
-Most rotation decisions get made after ROAS falls — which means the money is already spent. This service watches per-creative performance across Google, Meta, TikTok, Pinterest and LinkedIn, models the decay while it is still shallow, and tells you the date a creative is going to die before it does.
+Most rotation decisions get made after ROAS falls — which means the money is already spent. This service watches per-creative performance across Google, Meta and TikTok, models the decay while it is still shallow, and tells you the date a creative is going to die before it does. Pinterest and LinkedIn are planned (caps modeled, adapter not built).
 
 ▶ **[Live demo](https://ad-creative-optimizer.vercel.app)** — dashboard, creative list, alert center
+
+The hosted demo uses sample data; the API is not hosted.
 
 ---
 
 ## The product argument
 
-Three decisions in this repo are worth defending, because each one is a place where an obvious design would have been wrong.
+Four decisions in this repo are worth defending, because each one is a place where an obvious design would have been wrong.
 
 **1. Fatigue is a multi-metric verdict, not a CTR trigger.**
 CTR alone is noisy and moves for reasons that have nothing to do with the creative — audience expansion, a competitor pausing, a holiday. A single-metric alarm generates the kind of false positives that get an alerting product turned off in week three. So a creative is only called fatigued when **two or more** of CTR, CVR and ROAS have degraded past their own thresholds, or when frequency alone has run past the platform's ceiling.
@@ -27,7 +29,7 @@ The thresholds are deliberately asymmetric, in `src/services/prediction.js`:
 Comparing a creative to an industry average tells you it was always mediocre. Comparing a creative to *itself* tells you it is dying. The engine takes the trailing 7 days against everything before it, so the question is always "has this asset degraded," never "is this asset good."
 
 **3. Frequency ceilings are per platform, because the same number means different things.**
-Meta 5, LinkedIn 6, Pinterest 7, TikTok 8, Google 10. A LinkedIn feed impression and a TikTok impression are not the same unit of attention, and a shared cap would over-alert on TikTok while missing Meta burnout entirely.
+Meta 5, TikTok 8, Google 10; LinkedIn 6 and Pinterest 7 are planned (caps modeled, adapter not built). A LinkedIn feed impression and a TikTok impression are not the same unit of attention, and a shared cap would over-alert on TikTok while missing Meta burnout entirely.
 
 **4. Three consecutive days before firing.**
 A one-day dip is a weekend. Requiring persistence trades a little latency for a lot of precision — the right trade for an alert whose whole value is that a human believes it.
@@ -38,7 +40,7 @@ Every prediction carries a `confidence` scaled by how much history it has, and a
 
 ## What it does
 
-- **Connects accounts** across Google Ads, Meta Marketing, TikTok Marketing, Pinterest and LinkedIn through a common adapter interface (`src/adapters/base.js`), so adding a platform is one file.
+- **Connects accounts** across Google Ads, Meta Marketing and TikTok Marketing through a common adapter interface (`src/adapters/base.js`), so adding a platform is one file. Pinterest and LinkedIn are planned (caps modeled, adapter not built); `POST /api/accounts` rejects them until they have adapters.
 - **Syncs daily creative-level performance** on a cron and stores it in Postgres.
 - **Scores each creative** — status, per-metric change vs. its own baseline, estimated fatigue date, days remaining, confidence, and a recommendation.
 - **Alerts before the drop lands** via Slack webhook or email, so the rotation happens on a plan instead of in a panic.
@@ -46,7 +48,7 @@ Every prediction carries a `confidence` scaled by how much history it has, and a
 ## How it fits together
 
 ```
-Google · Meta · TikTok · Pinterest · LinkedIn
+Google · Meta · TikTok    (Pinterest · LinkedIn: planned, caps modeled, adapter not built)
                   │  (adapter per platform, one interface)
                   ▼
         Sync service  ──►  Postgres (daily creative metrics)
@@ -85,7 +87,7 @@ psql $DATABASE_URL < src/models/schema.sql
 npm run dev
 ```
 
-Requires Node 18+ and PostgreSQL 14+. Redis is optional, for caching.
+Requires Node 20+ and PostgreSQL 14+.
 
 ## Known limits
 

@@ -103,7 +103,9 @@ export default function Dashboard({ stats }) {
                 </div>
                 <div className="text-right">
                   <div className="font-medium text-red-600">
-                    {creative.days_remaining} days
+                    {creative.days_remaining === null || creative.days_remaining === undefined
+                      ? 'stable'
+                      : `${creative.days_remaining} days`}
                   </div>
                   <div className="text-sm text-gray-500">
                     {creative.fatigue_date && format(new Date(creative.fatigue_date), 'MM/dd')}

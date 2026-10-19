@@ -3,12 +3,14 @@ import Dashboard from '../components/Dashboard';
 import CreativeList from '../components/CreativeList';
 import AlertCenter from '../components/AlertCenter';
 import AccountSettings from '../components/AccountSettings';
-import { fetchAPI } from '../lib/api';
+import { fetchAPI, API_CONFIGURED } from '../lib/api';
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
+  // Without NEXT_PUBLIC_API_URL every response is sample data, so flag it before the first fetch.
+  const [isDemo, setIsDemo] = useState(!API_CONFIGURED);
 
   useEffect(() => {
     fetchDashboard();
@@ -18,6 +20,7 @@ export default function Home() {
     try {
       const data = await fetchAPI('/api/analytics/dashboard');
       setStats(data.data);
+      setIsDemo(Boolean(data.isDemo) || !API_CONFIGURED);
     } catch (error) {
       console.error('Failed to fetch dashboard:', error);
     } finally {
@@ -34,6 +37,12 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {isDemo && (
+        <div role="status" className="bg-amber-100 border-b border-amber-300 text-amber-900 text-sm text-center px-4 py-2">
+          <strong>Demo mode:</strong> sample data, backend not hosted
+        </div>
+      )}
+
       {/* Header */}
       <header className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 py-4">
@@ -43,7 +52,7 @@ export default function Home() {
             </h1>
             <div className="flex items-center gap-4">
               <span className="text-sm text-gray-500">
-                Last sync: {stats?.lastSync || 'Never'}
+                Last sync: {loading ? '…' : stats?.lastSync || 'Never'}
               </span>
               <button
                 onClick={fetchDashboard}

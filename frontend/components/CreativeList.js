@@ -159,11 +159,12 @@ export default function CreativeList() {
                   </td>
                   <td className="px-6 py-4">
                     <span className={`font-medium ${
-                      (creative.days_remaining || 999) <= 3 ? 'text-red-600' :
-                      (creative.days_remaining || 999) <= 7 ? 'text-yellow-600' :
+                      (creative.days_remaining ?? 999) <= 3 ? 'text-red-600' :
+                      (creative.days_remaining ?? 999) <= 7 ? 'text-yellow-600' :
                       'text-gray-900'
                     }`}>
-                      {creative.days_remaining ?? '-'}
+                      {creative.days_remaining ??
+                        (!creative.prediction_status || creative.prediction_status === 'unknown' ? '-' : 'stable')}
                     </span>
                   </td>
                   <td className="px-6 py-4">
