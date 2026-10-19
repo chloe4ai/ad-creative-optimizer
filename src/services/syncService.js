@@ -2,6 +2,7 @@ import cron from 'node-cron';
 import { adapterFactory } from '../adapters/index.js';
 import { FatiguePredictor } from './prediction.js';
 import { AlertService } from './alertService.js';
+import { accountCredentials } from './tokenCrypto.js';
 
 export class SyncService {
   constructor(db, config = {}) {
@@ -80,12 +81,8 @@ export class SyncService {
     const results = [];
 
     for (const account of accounts) {
-      // 与 accounts.js 的手动同步保持同一套字段映射
-      const result = await this.syncAccount(account.platform, {
-        accountId: account.account_id,
-        accessToken: account.access_token_encrypted,
-        refreshToken: account.refresh_token_encrypted,
-      });
+      // 与 accounts.js 的手动同步保持同一套字段映射（token 在这里解密）
+      const result = await this.syncAccount(account.platform, accountCredentials(account));
       results.push(...result);
     }
 

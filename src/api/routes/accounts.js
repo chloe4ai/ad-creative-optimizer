@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { SUPPORTED_PLATFORMS } from '../../adapters/index.js';
+import { accountCredentials, encryptToken, getTokenKey } from '../../services/tokenCrypto.js';
 
 const router = Router();
 
@@ -39,6 +40,8 @@ router.post('/', async (req, res) => {
       });
     }
 
+    // Tokens are encrypted at rest (AES-256-GCM) and never returned to the client.
+    const key = getTokenKey();
     const result = await req.app.locals.db.query(
       `INSERT INTO ad_accounts (
         platform, account_id, account_name,
@@ -50,8 +53,8 @@ router.post('/', async (req, res) => {
         access_token_encrypted = $4,
         refresh_token_encrypted = $5,
         is_active = true
-      RETURNING *`,
-      [platform, accountId, accountName, accessToken, refreshToken]
+      RETURNING id, platform, account_id, account_name, is_active, last_sync_at, created_at`,
+      [platform, accountId, accountName, encryptToken(accessToken, key), encryptToken(refreshToken, key)]
     );
 
     res.json({ success: true, data: result.rows[0] });
@@ -95,11 +98,7 @@ router.post('/:id/sync', async (req, res) => {
     const account = accountResult.rows[0];
     const syncService = req.app.locals.syncService;
 
-    const results = await syncService.syncAccount(account.platform, {
-      accountId: account.account_id,
-      accessToken: account.access_token_encrypted,
-      refreshToken: account.refresh_token_encrypted,
-    });
+    const results = await syncService.syncAccount(account.platform, accountCredentials(account));
 
     // 更新最后同步时间
     await req.app.locals.db.query(
@@ -135,9 +134,7 @@ router.post('/:id/test', async (req, res) => {
     const account = accountResult.rows[0];
     const { adapterFactory } = await import('../adapters/index.js');
 
-    const adapter = adapterFactory(account.platform, {
-      accessToken: account.access_token_encrypted,
-    });
+    const adapter = adapterFactory(account.platform, accountCredentials(account));
 
     const accounts = await adapter.getAdAccounts();
 

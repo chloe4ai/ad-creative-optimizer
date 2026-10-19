@@ -4,6 +4,7 @@ import { config } from 'dotenv';
 import { Pool } from 'pg';
 import { SyncService } from '../services/syncService.js';
 import { getApiKey, getAllowedOrigins } from '../config.js';
+import { getTokenKey } from '../services/tokenCrypto.js';
 import { requireApiKey } from './middleware/apiKey.js';
 
 import creativesRouter from './routes/creatives.js';
@@ -20,6 +21,7 @@ let apiKey;
 let allowedOrigins;
 try {
   apiKey = getApiKey();
+  getTokenKey(); // validates TOKEN_ENCRYPTION_KEY
   allowedOrigins = getAllowedOrigins();
 } catch (error) {
   console.error(`Configuration error: ${error.message}`);

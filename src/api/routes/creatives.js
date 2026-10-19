@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { accountCredentials } from '../../services/tokenCrypto.js';
 
 const router = Router();
 
@@ -217,9 +218,7 @@ router.post('/:id/sync', async (req, res) => {
 
     const account = accountConfig.rows[0];
     const { adapterFactory } = await import('../adapters/index.js');
-    const adapter = adapterFactory(creative.platform, {
-      accessToken: account.access_token_encrypted,
-    });
+    const adapter = adapterFactory(creative.platform, accountCredentials(account));
 
     const endDate = new Date().toISOString().split('T')[0];
     const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
@@ -272,12 +271,12 @@ router.post('/:id/pause', async (req, res) => {
     const account = accountConfig.rows[0];
     const { adapterFactory } = await import('../adapters/index.js');
 
-    const adapterConfig = { accessToken: account.access_token_encrypted };
+    const adapterConfig = accountCredentials(account);
     if (creative.platform === 'google') {
       adapterConfig.developerToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
       adapterConfig.clientId = process.env.GOOGLE_ADS_CLIENT_ID;
       adapterConfig.clientSecret = process.env.GOOGLE_ADS_CLIENT_SECRET;
-      adapterConfig.refreshToken = process.env.GOOGLE_ADS_REFRESH_TOKEN;
+      adapterConfig.refreshToken = adapterConfig.refreshToken || process.env.GOOGLE_ADS_REFRESH_TOKEN;
       adapterConfig.customerId = account.account_id;
     }
 
@@ -325,12 +324,12 @@ router.post('/:id/rotate', async (req, res) => {
     const account = accountConfig.rows[0];
     const { adapterFactory } = await import('../adapters/index.js');
 
-    const adapterConfig = { accessToken: account.access_token_encrypted };
+    const adapterConfig = accountCredentials(account);
     if (creative.platform === 'google') {
       adapterConfig.developerToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
       adapterConfig.clientId = process.env.GOOGLE_ADS_CLIENT_ID;
       adapterConfig.clientSecret = process.env.GOOGLE_ADS_CLIENT_SECRET;
-      adapterConfig.refreshToken = process.env.GOOGLE_ADS_REFRESH_TOKEN;
+      adapterConfig.refreshToken = adapterConfig.refreshToken || process.env.GOOGLE_ADS_REFRESH_TOKEN;
       adapterConfig.customerId = account.account_id;
     }
 
