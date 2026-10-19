@@ -64,6 +64,8 @@ Google · Meta · TikTok    (Pinterest · LinkedIn: planned, caps modeled, adapt
 
 ## API surface
 
+Every `/api` route requires the shared secret in an `x-api-key` header (see [Security](#security)); `/health` is open.
+
 | | |
 |---|---|
 | `GET /api/creatives` | List creatives — filter by `platform`, `status` |
@@ -83,11 +85,29 @@ git clone https://github.com/chloe4ai/ad-creative-optimizer.git
 cd ad-creative-optimizer
 npm install
 cp .env.example .env          # add platform credentials
+openssl rand -hex 32          # -> API_KEY
+openssl rand -hex 32          # -> TOKEN_ENCRYPTION_KEY
 psql $DATABASE_URL < src/models/schema.sql
 npm run dev
 ```
 
-Requires Node 20+ and PostgreSQL 14+.
+Then call it with the key:
+
+```bash
+curl -H "x-api-key: $API_KEY" http://localhost:3000/api/creatives
+```
+
+Requires Node 20+ and PostgreSQL 14+. The server refuses to start until `API_KEY` and `TOKEN_ENCRYPTION_KEY` are set.
+
+## Security
+
+The API is built to run as a private service behind one dashboard, and the controls match that scope.
+
+- **Shared-secret auth.** `src/api/middleware/apiKey.js` guards every `/api` route; the key is compared in constant time and a missing or wrong key is a `401`. There is one key for the whole deployment, not per-user accounts. The frontend sends it from `NEXT_PUBLIC_API_KEY`, which is compiled into the browser bundle, so anyone who can load the dashboard can read it: it keeps strangers out, it does not separate users.
+- **CORS is an allow-list.** `FRONTEND_ORIGIN` names the browser origin(s) allowed to call the API. Unset means no browser origin is allowed.
+- **Ad-platform tokens are encrypted at rest.** `POST /api/accounts` encrypts access and refresh tokens with AES-256-GCM (`src/services/tokenCrypto.js`) under `TOKEN_ENCRYPTION_KEY` before they reach Postgres; the adapters decrypt them on read, and the API never returns them. Losing the key makes every stored token unreadable, so keep it with the database backups.
+- **Migrating existing rows.** Deployments created before encryption hold plaintext in `access_token_encrypted`. Such rows still work (the server logs a warning once) until you run `npm run encrypt-tokens`, which rewrites them in place inside a transaction and is safe to re-run.
+- **Database TLS is verified.** In production the pool connects with certificate verification on. Provide the provider's CA as `DATABASE_SSL_CA`, or, as a last resort, set `DATABASE_SSL_ALLOW_SELF_SIGNED=true`, which disables verification and is logged as a warning at every start.
 
 ## Known limits
 

@@ -2,7 +2,7 @@
 
 ```bash
 npm ci
-npm test        # node --test test/prediction.test.js test/sync.test.js
+npm test        # node --test test/*.test.js
 ```
 
 `prediction.test.js` runs against `../src/services/prediction.js` directly — the module the
@@ -25,3 +25,11 @@ failed that way:
 | Degenerate input | CTR falling to zero and missing metric fields return finite numbers. A flat or rising series returns `fatigueDate: null, daysRemaining: null` ("stable") instead of a made-up 14 days. |
 | Input hygiene | pg `DECIMAL` strings are coerced to numbers, rows are sorted by date, zero-impression days are dropped, and fewer than 3 non-empty days returns `unknown`. Date math is UTC, so results do not depend on the runner's time zone. |
 | Sync path | `SyncService` passes the creative's platform to the model (a Google creative at frequency 6 is not `fatigued`), reads active accounts with plain SQL, and normalizes the previous prediction row before deciding whether to alert. |
+
+The remaining files pin the hardening rather than the model:
+
+| File | What it pins |
+|---|---|
+| `auth.test.js` | The `x-api-key` middleware over real HTTP: no key, wrong key, a prefix of the key and the key plus one byte are all `401`; the right key passes under any header casing; `/health` needs none. |
+| `tokenCrypto.test.js` | AES-256-GCM round trip, a fresh IV per call, authentication failure on a wrong key or a flipped ciphertext byte, legacy plaintext passthrough with a single warning, key parsing (hex or base64, exactly 32 bytes). |
+| `config.test.js` | `API_KEY` is required and may not be a placeholder; `FRONTEND_ORIGIN` must be bare origins; database TLS verifies certificates by default in production and only skips verification behind an explicit flag that warns. |
