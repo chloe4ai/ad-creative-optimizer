@@ -21,7 +21,7 @@ export default function Dashboard({ stats }) {
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         {/* Status Distribution */}
-        <div className="bg-white rounded-xl shadow p-6">
+        <div className="bg-white rounded-xl shadow-sm p-6">
           <h3 className="text-sm font-medium text-gray-500 mb-4">Creative Status</h3>
           <div className="space-y-2">
             {stats.statusStats?.map((stat) => (
@@ -36,7 +36,7 @@ export default function Dashboard({ stats }) {
         </div>
 
         {/* Platform Distribution */}
-        <div className="bg-white rounded-xl shadow p-6">
+        <div className="bg-white rounded-xl shadow-sm p-6">
           <h3 className="text-sm font-medium text-gray-500 mb-4">By Platform</h3>
           <div className="space-y-2">
             {stats.platformStats?.map((stat) => (
@@ -51,7 +51,7 @@ export default function Dashboard({ stats }) {
         </div>
 
         {/* Today's Alerts */}
-        <div className="bg-white rounded-xl shadow p-6">
+        <div className="bg-white rounded-xl shadow-sm p-6">
           <h3 className="text-sm font-medium text-gray-500 mb-4">Today's Alerts</h3>
           <div className="text-4xl font-bold text-red-600">
             {stats.todayAlerts}
@@ -60,7 +60,7 @@ export default function Dashboard({ stats }) {
         </div>
 
         {/* Quick Stats */}
-        <div className="bg-white rounded-xl shadow p-6">
+        <div className="bg-white rounded-xl shadow-sm p-6">
           <h3 className="text-sm font-medium text-gray-500 mb-4">7-Day Performance</h3>
           <div className="grid grid-cols-2 gap-2">
             <div>
@@ -80,7 +80,7 @@ export default function Dashboard({ stats }) {
       </div>
 
       {/* Upcoming Fatigue */}
-      <div className="bg-white rounded-xl shadow">
+      <div className="bg-white rounded-xl shadow-sm">
         <div className="px-6 py-4 border-b">
           <h2 className="text-lg font-semibold">Upcoming Fatigue</h2>
           <p className="text-sm text-gray-500">These creatives may need refreshing within 7 days</p>
@@ -122,7 +122,7 @@ export default function Dashboard({ stats }) {
       </div>
 
       {/* Performance Trend */}
-      <div className="bg-white rounded-xl shadow p-6">
+      <div className="bg-white rounded-xl shadow-sm p-6">
         <h2 className="text-lg font-semibold mb-4">7-Day Performance Trend</h2>
         <div className="h-64 flex items-end gap-2">
           {stats.weeklyTrend?.map((day, i) => (

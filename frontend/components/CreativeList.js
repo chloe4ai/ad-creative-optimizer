@@ -71,11 +71,11 @@ export default function CreativeList() {
       rotate: 'bg-orange-100 text-orange-800',
       pause: 'bg-red-100 text-red-800',
     };
-    return `px-2 py-1 rounded text-xs font-medium ${styles[rec] || ''}`;
+    return `px-2 py-1 rounded-sm text-xs font-medium ${styles[rec] || ''}`;
   };
 
   return (
-    <div className="bg-white rounded-xl shadow">
+    <div className="bg-white rounded-xl shadow-sm">
       {/* Filters */}
       <div className="px-6 py-4 border-b flex items-center gap-4">
         <select
@@ -140,7 +140,7 @@ export default function CreativeList() {
                         <img
                           src={creative.thumbnail_url}
                           alt=""
-                          className="w-10 h-10 rounded object-cover"
+                          className="w-10 h-10 rounded-sm object-cover"
                         />
                       )}
                       <div>
@@ -179,14 +179,14 @@ export default function CreativeList() {
                           <button
                             onClick={() => handleRotate(creative)}
                             disabled={actionLoading === creative.id}
-                            className="px-3 py-1 text-xs font-medium bg-orange-100 text-orange-800 rounded hover:bg-orange-200 disabled:opacity-50"
+                            className="px-3 py-1 text-xs font-medium bg-orange-100 text-orange-800 rounded-sm hover:bg-orange-200 disabled:opacity-50"
                           >
                             {actionLoading === creative.id ? '...' : 'Rotate'}
                           </button>
                           <button
                             onClick={() => handlePause(creative)}
                             disabled={actionLoading === creative.id}
-                            className="px-3 py-1 text-xs font-medium bg-red-100 text-red-800 rounded hover:bg-red-200 disabled:opacity-50"
+                            className="px-3 py-1 text-xs font-medium bg-red-100 text-red-800 rounded-sm hover:bg-red-200 disabled:opacity-50"
                           >
                             {actionLoading === creative.id ? '...' : 'Pause'}
                           </button>

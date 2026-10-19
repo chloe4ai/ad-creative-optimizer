@@ -73,9 +73,9 @@ export default function AlertCenter() {
       </div>
 
       {loading ? (
-        <div className="bg-white rounded-xl shadow p-8 text-center">Loading...</div>
+        <div className="bg-white rounded-xl shadow-sm p-8 text-center">Loading...</div>
       ) : alerts.length === 0 ? (
-        <div className="bg-white rounded-xl shadow p-8 text-center">
+        <div className="bg-white rounded-xl shadow-sm p-8 text-center">
           <div className="text-4xl mb-4">🎉</div>
           <p className="text-gray-500">No pending alerts</p>
         </div>
@@ -109,7 +109,7 @@ export default function AlertCenter() {
                   </div>
                   <button
                     onClick={() => {/* Mark as resolved */}}
-                    className="px-3 py-1 text-sm border rounded hover:bg-white"
+                    className="px-3 py-1 text-sm border rounded-sm hover:bg-white"
                   >
                     Mark Resolved
                   </button>

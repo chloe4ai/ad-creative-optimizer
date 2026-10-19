@@ -86,7 +86,7 @@ export default function AccountSettings() {
 
       {/* Add Form */}
       {showAddForm && (
-        <div className="bg-white rounded-xl shadow p-6">
+        <div className="bg-white rounded-xl shadow-sm p-6">
           <h3 className="font-semibold mb-4">Add New Ad Account</h3>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
@@ -164,9 +164,9 @@ export default function AccountSettings() {
 
       {/* Account List */}
       {loading ? (
-        <div className="bg-white rounded-xl shadow p-8 text-center">加载中...</div>
+        <div className="bg-white rounded-xl shadow-sm p-8 text-center">加载中...</div>
       ) : accounts.length === 0 ? (
-        <div className="bg-white rounded-xl shadow p-8 text-center">
+        <div className="bg-white rounded-xl shadow-sm p-8 text-center">
           <div className="text-4xl mb-4">🔗</div>
           <p className="text-gray-500">No ad accounts connected yet</p>
           <button
@@ -179,7 +179,7 @@ export default function AccountSettings() {
       ) : (
         <div className="grid gap-4">
           {accounts.map((account) => (
-            <div key={account.id} className="bg-white rounded-xl shadow p-6">
+            <div key={account.id} className="bg-white rounded-xl shadow-sm p-6">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
                   <span className="text-3xl">{platformLogos[account.platform]}</span>
@@ -200,13 +200,13 @@ export default function AccountSettings() {
                   </span>
                   <button
                     onClick={() => handleSync(account.id)}
-                    className="px-3 py-1 text-sm border rounded hover:bg-gray-50"
+                    className="px-3 py-1 text-sm border rounded-sm hover:bg-gray-50"
                   >
                     Sync
                   </button>
                   <button
                     onClick={() => handleDelete(account.id)}
-                    className="px-3 py-1 text-sm text-red-600 border border-red-200 rounded hover:bg-red-50"
+                    className="px-3 py-1 text-sm text-red-600 border border-red-200 rounded-sm hover:bg-red-50"
                   >
                     Remove
                   </button>
