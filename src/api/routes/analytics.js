@@ -43,7 +43,7 @@ router.get('/dashboard', async (req, res) => {
         SELECT id FROM predictions WHERE creative_id = c.id ORDER BY predicted_at DESC LIMIT 1
       )
       AND p.days_remaining <= 7
-      AND p.days_remaining > 0
+      AND p.days_remaining >= 0  -- 0 = CTR already below half its baseline
       ORDER BY p.days_remaining ASC
       LIMIT 10
     `);

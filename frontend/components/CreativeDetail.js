@@ -15,7 +15,7 @@ import {
 } from 'recharts';
 import { FatiguePredictor } from '../../src/services/prediction.js';
 import { fetchAPI } from '../lib/api';
-import { pct, pluralDays, joinList } from '../lib/demoData';
+import { pct, pluralDays, joinList, fatigueOutlook } from '../lib/demoData';
 
 const predictor = new FatiguePredictor();
 const { thresholds } = predictor;
@@ -100,7 +100,8 @@ function buildChart(series, prediction, now) {
   const today = rows[n - 1]?.label;
   for (let k = 1; k <= projectionDays; k++) {
     rows.push({
-      label: label(new Date(now.getTime() + k * 864e5)),
+      // Calendar days, not 24h steps: across a DST change 24h can land on the same date twice.
+      label: label(new Date(now.getFullYear(), now.getMonth(), now.getDate() + k, 12)),
       ctr: null,
       trend: trendAt(n - 1 + k) * 100,
     });
@@ -116,6 +117,7 @@ function buildChart(series, prediction, now) {
     recentFrom: rows[recentStart]?.label,
     baseline: baseline * 100,
     threshold: baseline * (1 - thresholds.ctrDropPercent) * 100,
+    fatigueLine: baseline * 0.5 * 100,
     fatiguePoint,
     truncated: hasDecay && prediction.daysRemaining > MAX_PROJECTION_DAYS,
   };
@@ -233,10 +235,10 @@ export default function CreativeDetail({ creativeId, onClose }) {
                 <div className="font-semibold mb-1">
                   {p.status === 'fatigued' && 'Fatigued — pause or replace now'}
                   {p.status === 'warning' && (Number.isFinite(p.daysRemaining)
-                    ? `Warning — CTR projected to halve in ${pluralDays(p.daysRemaining)} (${format(p.fatigueDate, 'MMM d')})`
+                    ? `Warning — ${fatigueOutlook(p.daysRemaining)}${p.daysRemaining > 0 ? ` (${format(p.fatigueDate, 'MMM d')})` : ''}`
                     : 'Warning — prepare a replacement')}
                   {p.status === 'healthy' && (Number.isFinite(p.daysRemaining)
-                    ? `Healthy — CTR projected to halve in ${pluralDays(p.daysRemaining)}`
+                    ? `Healthy — ${fatigueOutlook(p.daysRemaining)}`
                     : 'Healthy — stable')}
                   {p.status === 'unknown' && 'Not enough data'}
                 </div>
@@ -284,6 +286,7 @@ export default function CreativeDetail({ creativeId, onClose }) {
                         )}
                         <ReferenceLine y={chart.baseline} stroke={COLORS.baseline} strokeWidth={1.5} />
                         <ReferenceLine y={chart.threshold} stroke={COLORS.threshold} strokeWidth={1.5} strokeDasharray="4 3" />
+                        <ReferenceLine y={chart.fatigueLine} stroke={COLORS.projection} strokeOpacity={0.5} strokeWidth={1} strokeDasharray="2 3" label={{ value: '50% of baseline', position: 'insideBottomLeft', fontSize: 10, fill: '#991b1b' }} />
                         {chart.rows.length > analysis.series.length && (
                           <ReferenceLine x={chart.today} stroke="#9ca3af" strokeDasharray="2 3" label={{ value: 'Today', position: 'top', fontSize: 11, fill: '#6b7280' }} />
                         )}
@@ -307,9 +310,10 @@ export default function CreativeDetail({ creativeId, onClose }) {
                   </div>
                   {p.fatigueDate && (
                     <p className="text-xs text-gray-500 mt-2">
-                      Fatigue date = when the fitted curve falls to half of today&apos;s level
-                      ({format(p.fatigueDate, 'MMM d')}, {pluralDays(p.daysRemaining)} out
-                      {chart.truncated ? `; the chart shows the first ${MAX_PROJECTION_DAYS}` : ''}).
+                      Fatigue date = when the fitted curve reaches 50% of the creative&apos;s own baseline
+                      {p.daysRemaining === 0
+                        ? ' — it already has, so the date is today.'
+                        : ` (${format(p.fatigueDate, 'MMM d')}, ${pluralDays(p.daysRemaining)} out${chart.truncated ? `; the chart shows the first ${MAX_PROJECTION_DAYS}` : ''}).`}
                     </p>
                   )}
                 </div>

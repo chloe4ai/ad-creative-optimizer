@@ -84,7 +84,7 @@ export default function Dashboard({ stats, onSelectCreative }) {
       <div className="bg-white rounded-xl shadow-sm">
         <div className="px-6 py-4 border-b">
           <h2 className="text-lg font-semibold">Upcoming Fatigue</h2>
-          <p className="text-sm text-gray-500">CTR projected to halve within 7 days. Click one to see its decay curve.</p>
+          <p className="text-sm text-gray-500">CTR projected to reach half its own baseline within 7 days. Click one to see its decay curve.</p>
         </div>
         <div className="divide-y">
           {stats.upcomingFatigue?.length > 0 ? (
@@ -116,7 +116,7 @@ export default function Dashboard({ stats, onSelectCreative }) {
                         : pluralDays(creative.days_remaining)}
                   </div>
                   <div className="text-sm text-gray-500">
-                    {creative.fatigue_date && format(new Date(creative.fatigue_date), 'MM/dd')}
+                    {creative.status !== 'fatigued' && creative.fatigue_date && format(new Date(creative.fatigue_date), 'MM/dd')}
                   </div>
                 </div>
               </button>

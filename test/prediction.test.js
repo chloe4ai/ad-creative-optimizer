@@ -136,19 +136,34 @@ test('要连续几天掉下去才判疲劳，单天暴跌不算', () => {
 
 test('剩余寿命按日衰减率外推，不是按窗口跌幅', () => {
   const p = new FatiguePredictor();
-  // 一周跌一半 —— 再跌一半差不多还要一周，不是 1 天。
-  const r = p.predict(series(14, 0.5));
+  // 一周跌 25%（日衰减约 4%）：从 75% 跌到 50% 约 10 天，从近期窗口中点（3 天前）算起，
+  // 折回今天约 7 天。按窗口跌幅当日跌幅会算出 1 天。
+  const r = p.predict(series(14, 0.25));
   assert.equal(r.spanDays, 7);
   assert.ok(r.daysRemaining >= 5 && r.daysRemaining <= 9,
-    `一周跌 50%，剩余寿命应在一周上下，实际 ${r.daysRemaining}`);
+    `一周跌 25%，剩余寿命应在一周上下，实际 ${r.daysRemaining}`);
 });
 
-test('跌得越快，剩余寿命越短，且始终为正', () => {
+test('疲劳日期 = CTR 跌到基准一半的日子，不是从当前水平再减半', () => {
+  const p = new FatiguePredictor();
+  // 已经跌了 40%：离基准一半只差 10 个百分点，应该比跌 10% 的素材近得多
+  const deep = p.predict(series(14, 0.4));
+  const shallow = p.predict(series(14, 0.1));
+  assert.ok(deep.daysRemaining < 5, `跌 40% 应在几天内跌破一半，实际 ${deep.daysRemaining}`);
+  assert.ok(shallow.daysRemaining > deep.daysRemaining * 3);
+  // 已经跌破一半：今天就是疲劳日
+  for (const drop of [0.5, 0.75]) {
+    const r = p.predict(series(14, drop));
+    assert.equal(r.daysRemaining, 0, `drop=${drop} 已跌破基准一半，应为 0 天`);
+  }
+});
+
+test('跌得越快，剩余寿命越短，且始终是有限的非负数', () => {
   const p = new FatiguePredictor();
   let previous = Infinity;
   for (const drop of [0.10, 0.25, 0.5, 0.75, 0.95]) {
     const r = p.predict(series(14, drop));
-    assert.ok(r.daysRemaining > 0, `drop=${drop} 剩余寿命不是正数`);
+    assert.ok(r.daysRemaining >= 0, `drop=${drop} 剩余寿命是负数`);
     assert.ok(Number.isFinite(r.daysRemaining), `drop=${drop} 剩余寿命不是有限数`);
     assert.ok(r.daysRemaining <= previous, `drop=${drop} 跌得更快反而活得更久`);
     previous = r.daysRemaining;
@@ -270,7 +285,8 @@ test('(a) addDays is UTC arithmetic, so a DST change does not shift daysRemainin
     // US DST ends 2026-11-01; a ~7 day forecast from here crosses it.
     const now = new Date('2026-10-28T19:00:00Z');
     assert.equal(p.addDays(now, 14).getTime() - now.getTime(), 14 * DAY_MS);
-    const r = p.predict(series(14, 0.5), { now });
+    const r = p.predict(series(14, 0.25), { now });
+    assert.ok(r.daysRemaining > 0);
     assert.ok(Number.isInteger(r.daysRemaining));
     assert.equal(r.fatigueDate.getTime() - now.getTime(), r.daysRemaining * DAY_MS);
   } finally {

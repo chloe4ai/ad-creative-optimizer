@@ -39,11 +39,11 @@ const shape = ({ start = 0, rate = 1 } = {}) => (t) => (t < start ? 1 : Math.pow
 // to conclude, the engine decides.
 const CREATIVE_SPECS = [
   {
-    // Meta banner losing clicks fast; conversions and ROAS sliding but not yet past threshold.
+    // Meta banner losing clicks steadily; conversions and ROAS sliding but not yet past threshold.
     id: 1, name: 'Summer Sale Banner A', platform: 'meta', headline: 'Up to 50% off!',
     campaign_name: 'Summer Sale', days: 14, impressions: 52000, cpm: 9.5,
     ctr: 0.0142, cvr: 0.034, roas: 3.1,
-    shapes: { ctr: { start: 3, rate: 0.895 }, cvr: { start: 5, rate: 0.98 }, roas: { start: 5, rate: 0.97 } },
+    shapes: { ctr: { start: 3, rate: 0.95 }, cvr: { start: 5, rate: 0.98 }, roas: { start: 5, rate: 0.97 } },
     frequency: { start: 1.3, perDay: 0.16 },
   },
   {
@@ -85,11 +85,11 @@ const CREATIVE_SPECS = [
     shapes: { ctr: { start: 4, rate: 1.003 }, cvr: { start: 0, rate: 1.001 }, roas: { start: 0, rate: 1.002 } },
   },
   {
-    // Meta flash-sale creative with a short life: clicks collapsing, urgency keeps CVR up.
+    // Meta flash-sale creative with a short life: clicks falling fast, urgency keeps CVR up.
     id: 7, name: 'Flash Sale Countdown', platform: 'meta', headline: 'Ends tonight!',
     campaign_name: 'Flash Sale', days: 10, impressions: 71000, cpm: 10.5,
     ctr: 0.0168, cvr: 0.031, roas: 2.9,
-    shapes: { ctr: { start: 2, rate: 0.83 }, cvr: { start: 2, rate: 1.02 }, roas: { start: 3, rate: 0.975 } },
+    shapes: { ctr: { start: 2, rate: 0.915 }, cvr: { start: 2, rate: 1.02 }, roas: { start: 3, rate: 0.975 } },
     frequency: { start: 1.4, perDay: 0.24 },
   },
   {
@@ -148,6 +148,11 @@ const generateHistory = (spec) => {
 
 export const pluralDays = (n) => `${n} ${n === 1 ? 'day' : 'days'}`;
 
+// The engine's fatigue date is when CTR reaches 50% of the creative's own baseline.
+export const fatigueOutlook = (daysRemaining) => (daysRemaining === 0
+  ? 'CTR is already below half its baseline'
+  : `CTR projected to fall to half its baseline in ${pluralDays(daysRemaining)}`);
+
 // Signed whole percent; a change that rounds to zero prints as 0%, not −0%.
 export const pct = (change) => {
   const whole = Math.round(change * 100);
@@ -182,7 +187,7 @@ const alertMessage = (prediction) => {
   }
 
   const when = Number.isFinite(daysRemaining)
-    ? `CTR projected to halve in ${pluralDays(daysRemaining)}`
+    ? fatigueOutlook(daysRemaining)
     : 'no decline to extrapolate yet';
   if (crossed.length === 1) {
     const [label, v] = crossed[0];
@@ -231,9 +236,9 @@ export const buildDemoState = (now = new Date()) => {
     .map((value) => ({ [key]: value, count: rows.filter((r) => r[key] === value).length }))
     .filter((s) => s.count > 0);
 
-  // Same rule as the API's dashboard query: 0 < days_remaining <= 7, soonest first.
+  // Same rule as the API's dashboard query: 0 <= days_remaining <= 7, soonest first.
   const upcomingFatigue = rows
-    .filter((r) => Number.isFinite(r.days_remaining) && r.days_remaining > 0 && r.days_remaining <= 7)
+    .filter((r) => Number.isFinite(r.days_remaining) && r.days_remaining >= 0 && r.days_remaining <= 7)
     .sort((a, b) => a.days_remaining - b.days_remaining);
 
   // shouldAlert() fires for every warning/fatigued creative on its first prediction.

@@ -98,7 +98,7 @@ export class FatiguePredictor {
     const status = this.determineStatus(metricsChange);
 
     // 计算剩余寿命
-    const fatigueDate = this.estimateFatigueDate(metricsChange, spanDays, now);
+    const fatigueDate = this.estimateFatigueDate(metricsChange, spanDays, now, window);
 
     // 生成建议
     const recommendation = this.generateRecommendation(status, metricsChange);
@@ -230,8 +230,11 @@ export class FatiguePredictor {
    * 指数衰减外推：CTR 什么时候跌到基准的一半。
    * change 是「一个 spanDays 长的窗口」上的总跌幅，不是日跌幅 —— 必须先开 spanDays 次方
    * 换成日衰减率，否则单位差了近一个数量级。
+   * 终点是「基准 × 50%」，不是「当前水平再减半」：已经跌了 40% 的素材只剩 10 个百分点可跌。
+   * 近期均值代表的是近期窗口的中点（约 (window - 1) / 2 天前），所以从中点算起再折回今天。
+   * 已经跌破基准一半的，疲劳日期就是今天。
    */
-  estimateFatigueDate(metricsChange, spanDays, now = new Date()) {
+  estimateFatigueDate(metricsChange, spanDays, now = new Date(), window = 1) {
     const { ctr } = metricsChange;
 
     if (ctr.baseline === 0 || ctr.change >= 0) {
@@ -239,13 +242,15 @@ export class FatiguePredictor {
       return null;
     }
 
-    const retention = 1 + ctr.change;           // 窗口留存率，落在 [0, 1)
-    if (retention <= 0) return this.addDays(now, 1);  // 已经归零
+    const FATIGUE_LEVEL = 0.5;                  // 相对基准
+    const retention = 1 + ctr.change;           // 近期 / 基准，落在 [0, 1)
+    if (retention <= FATIGUE_LEVEL) return this.addDays(now, 0);  // 已经跌破
 
     const dailyRetention = Math.pow(retention, 1 / spanDays);
-    const daysToFatigue = Math.log(0.5) / Math.log(dailyRetention);
+    const daysFromRecentMid = Math.log(FATIGUE_LEVEL / retention) / Math.log(dailyRetention);
+    const daysToFatigue = daysFromRecentMid - (window - 1) / 2;
 
-    const clamped = Math.max(1, Math.min(this.thresholds.maxHorizonDays, Math.round(daysToFatigue)));
+    const clamped = Math.max(0, Math.min(this.thresholds.maxHorizonDays, Math.round(daysToFatigue)));
     return this.addDays(now, clamped);
   }
 

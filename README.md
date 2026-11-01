@@ -34,6 +34,8 @@ Meta 5, TikTok 8, Google 10; LinkedIn 6 and Pinterest 7 are planned (caps modele
 **4. Three consecutive days before firing.**
 A one-day dip is a weekend. Requiring persistence trades a little latency for a lot of precision — the right trade for an alert whose whole value is that a human believes it.
 
+**The fatigue date is when CTR reaches half of the creative's own baseline**, extrapolated from the daily decay rate between the baseline and recent windows. It is anchored to the baseline, not to today's level: a creative already down 40% has only ten points left to fall, and the date says so. One already below the line is dated today.
+
 Every prediction carries a `confidence` scaled by how much history it has, and a prediction with fewer than three days of data refuses to answer rather than guessing.
 
 ---
