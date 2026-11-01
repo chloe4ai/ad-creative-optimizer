@@ -1,6 +1,7 @@
 import { format } from 'date-fns';
+import { pluralDays } from '../lib/demoData';
 
-export default function Dashboard({ stats }) {
+export default function Dashboard({ stats, onSelectCreative }) {
   if (!stats) return null;
 
   const statusColors = {
@@ -83,35 +84,42 @@ export default function Dashboard({ stats }) {
       <div className="bg-white rounded-xl shadow-sm">
         <div className="px-6 py-4 border-b">
           <h2 className="text-lg font-semibold">Upcoming Fatigue</h2>
-          <p className="text-sm text-gray-500">These creatives may need refreshing within 7 days</p>
+          <p className="text-sm text-gray-500">CTR projected to halve within 7 days. Click one to see its decay curve.</p>
         </div>
         <div className="divide-y">
           {stats.upcomingFatigue?.length > 0 ? (
             stats.upcomingFatigue.map((creative) => (
-              <div key={creative.id} className="px-6 py-4 flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className={`w-2 h-2 rounded-full ${
+              <button
+                type="button"
+                key={creative.id}
+                onClick={() => onSelectCreative?.(creative.id)}
+                className="w-full text-left px-4 sm:px-6 py-4 flex items-center justify-between gap-4 hover:bg-gray-50 focus:outline-none focus-visible:bg-gray-50"
+              >
+                <div className="flex items-center gap-4 min-w-0">
+                  <div className={`w-2 h-2 shrink-0 rounded-full ${
                     creative.status === 'fatigued' ? 'bg-red-500' :
                     creative.status === 'warning' ? 'bg-yellow-500' : 'bg-green-500'
                   }`} />
-                  <div>
-                    <div className="font-medium">{creative.name}</div>
+                  <div className="min-w-0">
+                    <div className="font-medium truncate">{creative.name}</div>
                     <div className="text-sm text-gray-500">
                       {creative.platform} • {creative.adgroup_name || creative.campaign_name}
                     </div>
                   </div>
                 </div>
-                <div className="text-right">
+                <div className="text-right shrink-0">
                   <div className="font-medium text-red-600">
-                    {creative.days_remaining === null || creative.days_remaining === undefined
-                      ? 'stable'
-                      : `${creative.days_remaining} days`}
+                    {creative.status === 'fatigued'
+                      ? 'fatigued now'
+                      : creative.days_remaining === null || creative.days_remaining === undefined
+                        ? 'stable'
+                        : pluralDays(creative.days_remaining)}
                   </div>
                   <div className="text-sm text-gray-500">
                     {creative.fatigue_date && format(new Date(creative.fatigue_date), 'MM/dd')}
                   </div>
                 </div>
-              </div>
+              </button>
             ))
           ) : (
             <div className="px-6 py-8 text-center text-gray-500">
@@ -136,6 +144,11 @@ export default function Dashboard({ stats }) {
               <span className="text-xs text-gray-500">
                 {format(new Date(day.date), 'MM/dd')}
               </span>
+              {day.ctr !== undefined && (
+                <span className="text-[11px] text-gray-400" title="Portfolio CTR that day">
+                  {(Number(day.ctr) * 100).toFixed(2)}%
+                </span>
+              )}
             </div>
           ))}
         </div>

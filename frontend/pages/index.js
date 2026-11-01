@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Dashboard from '../components/Dashboard';
 import CreativeList from '../components/CreativeList';
 import AlertCenter from '../components/AlertCenter';
 import AccountSettings from '../components/AccountSettings';
+import CreativeDetail from '../components/CreativeDetail';
 import { fetchAPI, API_CONFIGURED } from '../lib/api';
 
 export default function Home() {
@@ -11,6 +12,9 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   // Without NEXT_PUBLIC_API_URL every response is sample data, so flag it before the first fetch.
   const [isDemo, setIsDemo] = useState(!API_CONFIGURED);
+  // Creative whose decay curve is open in the detail panel.
+  const [selectedId, setSelectedId] = useState(null);
+  const closeDetail = useCallback(() => setSelectedId(null), []);
 
   useEffect(() => {
     fetchDashboard();
@@ -39,14 +43,14 @@ export default function Home() {
     <div className="min-h-screen bg-gray-50">
       {isDemo && (
         <div role="status" className="bg-amber-100 border-b border-amber-300 text-amber-900 text-sm text-center px-4 py-2">
-          <strong>Demo mode:</strong> sample data, backend not hosted
+          <strong>Demo mode:</strong> generated sample histories, scored by the real prediction engine; backend not hosted. Click a creative to see its decay curve.
         </div>
       )}
 
       {/* Header */}
       <header className="bg-white shadow-xs border-b">
         <div className="max-w-7xl mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <h1 className="text-2xl font-bold text-gray-900">
               Ad Creative Optimizer
             </h1>
@@ -68,12 +72,12 @@ export default function Home() {
       {/* Navigation */}
       <nav className="bg-white border-b">
         <div className="max-w-7xl mx-auto px-4">
-          <div className="flex gap-1">
+          <div className="flex gap-1 overflow-x-auto">
             {tabs.map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                className={`shrink-0 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
                   activeTab === tab.id
                     ? 'border-blue-600 text-blue-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -95,13 +99,15 @@ export default function Home() {
           </div>
         ) : (
           <>
-            {activeTab === 'dashboard' && <Dashboard stats={stats} />}
-            {activeTab === 'creatives' && <CreativeList />}
-            {activeTab === 'alerts' && <AlertCenter />}
+            {activeTab === 'dashboard' && <Dashboard stats={stats} onSelectCreative={setSelectedId} />}
+            {activeTab === 'creatives' && <CreativeList onSelectCreative={setSelectedId} />}
+            {activeTab === 'alerts' && <AlertCenter onSelectCreative={setSelectedId} />}
             {activeTab === 'accounts' && <AccountSettings />}
           </>
         )}
       </main>
+
+      {selectedId !== null && <CreativeDetail creativeId={selectedId} onClose={closeDetail} />}
     </div>
   );
 }

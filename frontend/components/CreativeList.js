@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { format } from 'date-fns';
 import { fetchAPI } from '../lib/api';
 
-export default function CreativeList() {
+export default function CreativeList({ onSelectCreative }) {
   const [creatives, setCreatives] = useState([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(null);
@@ -77,7 +77,7 @@ export default function CreativeList() {
   return (
     <div className="bg-white rounded-xl shadow-sm">
       {/* Filters */}
-      <div className="px-6 py-4 border-b flex items-center gap-4">
+      <div className="px-4 sm:px-6 py-4 border-b flex flex-wrap items-center gap-3 sm:gap-4">
         <select
           value={filter.platform}
           onChange={(e) => setFilter({ ...filter, platform: e.target.value })}
@@ -133,7 +133,19 @@ export default function CreativeList() {
               </tr>
             ) : (
               creatives.map((creative) => (
-                <tr key={creative.id} className="hover:bg-gray-50">
+                <tr
+                  key={creative.id}
+                  onClick={() => onSelectCreative?.(creative.id)}
+                  onKeyDown={(e) => {
+                    if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+                      e.preventDefault();
+                      onSelectCreative?.(creative.id);
+                    }
+                  }}
+                  tabIndex={0}
+                  title="Show decay curve"
+                  className="hover:bg-gray-50 cursor-pointer focus:outline-none focus-visible:bg-gray-50"
+                >
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
                       {creative.thumbnail_url && (
@@ -150,7 +162,7 @@ export default function CreativeList() {
                     </div>
                   </td>
                   <td className="px-6 py-4">
-                    <span className="capitalize">{creative.platform}</span>
+                    <span>{{ google: 'Google', meta: 'Meta', tiktok: 'TikTok' }[creative.platform] || creative.platform}</span>
                   </td>
                   <td className="px-6 py-4">
                     <span className={getStatusBadge(creative.prediction_status)}>
@@ -159,12 +171,14 @@ export default function CreativeList() {
                   </td>
                   <td className="px-6 py-4">
                     <span className={`font-medium ${
-                      (creative.days_remaining ?? 999) <= 3 ? 'text-red-600' :
+                      creative.prediction_status === 'fatigued' || (creative.days_remaining ?? 999) <= 3 ? 'text-red-600' :
                       (creative.days_remaining ?? 999) <= 7 ? 'text-yellow-600' :
                       'text-gray-900'
                     }`}>
-                      {creative.days_remaining ??
-                        (!creative.prediction_status || creative.prediction_status === 'unknown' ? '-' : 'stable')}
+                      {creative.prediction_status === 'fatigued'
+                        ? 'now'
+                        : creative.days_remaining ??
+                          (!creative.prediction_status || creative.prediction_status === 'unknown' ? '-' : 'stable')}
                     </span>
                   </td>
                   <td className="px-6 py-4">
@@ -173,7 +187,7 @@ export default function CreativeList() {
                     </span>
                   </td>
                   <td className="px-6 py-4">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                       {creative.recommendation !== 'keep' && (
                         <>
                           <button

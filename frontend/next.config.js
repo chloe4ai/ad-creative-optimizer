@@ -1,10 +1,13 @@
+const path = require('path');
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  // The API's package-lock.json sits one level up; pin the workspace root to this folder
-  // so Turbopack does not pick the repository root.
+  // The demo imports the real prediction engine from ../src/services/prediction.js, and
+  // Turbopack only resolves files inside its root, so the root is the repository, not this
+  // folder. Setting it explicitly also stops Turbopack guessing a root from the two lockfiles.
   turbopack: {
-    root: __dirname,
+    root: path.join(__dirname, '..'),
   },
 };
 

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { fetchAPI } from '../lib/api';
 
-export default function AlertCenter() {
+export default function AlertCenter({ onSelectCreative }) {
   const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -88,9 +88,9 @@ export default function AlertCenter() {
                 key={alert.id}
                 className={`${styles.bg} border rounded-xl p-4`}
               >
-                <div className="flex items-start gap-4">
+                <div className="flex flex-wrap sm:flex-nowrap items-start gap-3 sm:gap-4">
                   <span className="text-2xl">{styles.icon}</span>
-                  <div className="flex-1">
+                  <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                       <span className={`font-semibold ${styles.text}`}>
                         {getTypeLabel(alert.alert_type)}
@@ -100,8 +100,18 @@ export default function AlertCenter() {
                       </span>
                     </div>
                     <p className="text-gray-700 mb-2">{alert.message}</p>
-                    <div className="flex items-center gap-4 text-sm text-gray-500">
-                      <span>{alert.creative_name}</span>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500">
+                      {onSelectCreative && (alert.creativeId ?? alert.creative_id) != null ? (
+                        <button
+                          type="button"
+                          onClick={() => onSelectCreative(alert.creativeId ?? alert.creative_id)}
+                          className="text-blue-600 hover:underline"
+                        >
+                          {alert.creative_name}: view decay curve
+                        </button>
+                      ) : (
+                        <span>{alert.creative_name}</span>
+                      )}
                       <span>
                         {formatDistanceToNow(new Date(alert.created_at), { addSuffix: true })}
                       </span>

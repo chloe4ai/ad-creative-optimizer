@@ -4,9 +4,9 @@
 
 Most rotation decisions get made after ROAS falls — which means the money is already spent. This service watches per-creative performance across Google, Meta and TikTok, models the decay while it is still shallow, and tells you the date a creative is going to die before it does. Pinterest and LinkedIn are planned (caps modeled, adapter not built).
 
-▶ **[Live demo](https://ad-creative-optimizer.vercel.app)** — dashboard, creative list, alert center
+▶ **[Live demo](https://ad-creative-optimizer.vercel.app)** — dashboard, creative list, alert center. Click any creative to see its decay curve: daily CTR against its own baseline, the −15% threshold, the projected decay to its fatigue date, and which rules fired.
 
-The hosted demo uses sample data; the API is not hosted.
+The API is not hosted, so the demo runs on generated sample histories, but every status, fatigue date and alert on it is computed in the browser by the real prediction engine (`src/services/prediction.js`), not typed in.
 
 ---
 
