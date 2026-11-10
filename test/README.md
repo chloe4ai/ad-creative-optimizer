@@ -44,7 +44,7 @@ out by hand:
 | Evidence | The same 25% CTR drop is `strong` on 100,000 impressions a day and `weak` on 200. The verdict is the same in both cases: evidence is reported, it does not gate the status. |
 | Frequency | `reported: false` with every field null when all rows are 0 (never a made-up 0 against a cap), first day over the cap, days to the cap at the current slope. |
 | Definition and projection | Window, baseline days and required run for 3 to 40 days of history; `projection.engineDays` is `prediction.daysRemaining`; no days and a `note` when CTR is not declining, whatever the status. |
-| Verdict vs. diagnosis | A post-click problem still returns `status: 'fatigued'` with no CTR half-life. Pinned as a known limit so that changing it is a decision, not an accident. |
+| Verdict vs. diagnosis | Fatigue needs CTR to be slipping: a post-click problem returns `status: 'warning'` with recommendation `keep`, and across a sweep of metric combinations a fatigued verdict is never diagnosed as "not the creative". |
 | Purity and input shapes | `diagnose()` mutates neither the rows nor the prediction, and `predict()` returns the same object before and after. DB-shaped rows (`metric_date`, DECIMAL strings, no `revenue` or `cpm`) and rate-only rows diagnose without NaN. |
 
 `demoData.test.js` pins what the demo claims about itself: on every generated row

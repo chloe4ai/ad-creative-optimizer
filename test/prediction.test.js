@@ -371,3 +371,50 @@ test('(e) flat or rising trend returns null fatigueDate and daysRemaining', () =
   assert.ok(declining.fatigueDate instanceof Date);
   assert.ok(Number.isFinite(declining.daysRemaining));
 });
+
+// ---- Fatigue needs the click signal ------------------------------------------------
+
+test('CVR 和 ROAS 都过线但 CTR 没动：是 warning 且保留素材，不是 fatigued', () => {
+  const predictor = new FatiguePredictor();
+  const day = (ctr, cvr, roas) => ({ ctr, cvr, roas, frequency: 0, impressions: 10000 });
+  const rows = [
+    ...Array.from({ length: 7 }, () => day(0.02, 0.05, 3)),
+    ...Array.from({ length: 7 }, () => day(0.02, 0.03, 1.8)), // CVR -40%, ROAS -40%, CTR flat
+  ];
+  const p = predictor.predict(rows, { platform: 'tiktok' });
+  assert.equal(p.metricsChange.cvr.isFatigued, true);
+  assert.equal(p.metricsChange.roas.isFatigued, true);
+  assert.equal(p.status, 'warning');
+  assert.equal(p.recommendation, 'keep');
+});
+
+test('同样的 CVR / ROAS 跌幅，CTR 也跌过半程阈值：就是 fatigued', () => {
+  const predictor = new FatiguePredictor();
+  const day = (ctr, cvr, roas) => ({ ctr, cvr, roas, frequency: 0, impressions: 10000 });
+  const rows = [
+    ...Array.from({ length: 7 }, () => day(0.02, 0.05, 3)),
+    ...Array.from({ length: 7 }, () => day(0.018, 0.03, 1.8)), // CTR -10% (past halfway of 15%)
+  ];
+  const p = predictor.predict(rows, { platform: 'tiktok' });
+  assert.equal(p.metricsChange.ctr.isFatigued, false);
+  assert.equal(p.status, 'fatigued');
+  assert.equal(p.recommendation, 'pause');
+});
+
+test('频次超上限仍然单独判 fatigued，不需要 CTR 参与', () => {
+  const predictor = new FatiguePredictor();
+  const rows = Array.from({ length: 14 }, () => ({ ctr: 0.02, cvr: 0.05, roas: 3, frequency: 6, impressions: 10000 }));
+  assert.equal(predictor.predict(rows, { platform: 'meta' }).status, 'fatigued');
+});
+
+test('warning 的建议：CTR 参与下滑 → rotate；只有 ROAS 在掉 → keep', () => {
+  const predictor = new FatiguePredictor();
+  const day = (ctr, roas) => ({ ctr, cvr: 0.05, roas, frequency: 0, impressions: 10000 });
+  const flat = Array.from({ length: 7 }, () => day(0.02, 3));
+  const ctrDown = predictor.predict([...flat, ...Array.from({ length: 7 }, () => day(0.016, 3))], { platform: 'google' });
+  assert.equal(ctrDown.status, 'warning');
+  assert.equal(ctrDown.recommendation, 'rotate');
+  const roasDown = predictor.predict([...flat, ...Array.from({ length: 7 }, () => day(0.02, 2.4))], { platform: 'google' });
+  assert.equal(roasDown.status, 'warning');
+  assert.equal(roasDown.recommendation, 'keep');
+});

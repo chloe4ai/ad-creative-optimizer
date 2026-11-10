@@ -72,8 +72,8 @@ export class AlertService {
     const messages = {
       unknown: `${creative.name}: not enough data to judge yet`,
       healthy: `${creative.name} is healthy. ${projection}.`,
-      warning: `${creative.name}: warning. One metric is past its threshold or close to it. ${projection}.`,
-      fatigued: `${creative.name}: fatigued by the rule (two or more metrics past threshold, or frequency over the cap).`,
+      warning: `${creative.name}: warning. A metric is past its threshold or close to it. ${projection}.`,
+      fatigued: `${creative.name}: fatigued by the rule (two or more metrics past threshold with CTR slipping, or frequency over the cap).`,
     };
     const verdict = messages[prediction.status];
     // Why, and what to do about it, from the diagnosis (which may say it is not the creative).

@@ -71,11 +71,14 @@ function verdictSentence(prediction, diagnosis, platform) {
 
   if (prediction.status === 'fatigued') {
     if (past.length >= definition.metricsNeeded) {
-      return `${joinList(past)} are past their thresholds for at least ${run} running. ${definition.metricsNeeded} or more metrics agreeing is the rule for fatigued.${frequency.isHigh ? ` Frequency is also over the ${platformName(platform)} cap of ${frequency.limit}.` : ''}`;
+      return `${joinList(past)} are past their thresholds for at least ${run} running. ${definition.metricsNeeded} or more metrics agreeing, with CTR among those slipping, is the rule for fatigued.${frequency.isHigh ? ` Frequency is also over the ${platformName(platform)} cap of ${frequency.limit}.` : ''}`;
     }
     return `Frequency ${frequency.windowAvg.toFixed(1)} is over the ${platformName(platform)} cap of ${frequency.limit}. That alone makes the verdict fatigued${past.length ? `; ${joinList(past)} is also past its threshold.` : ', even though CTR, CVR and ROAS are within their thresholds.'}`;
   }
   if (prediction.status === 'warning') {
+    if (past.length >= definition.metricsNeeded && definition.ctrInvolved === false) {
+      return `${joinList(past)} are past their thresholds, but CTR is not slipping. A worn-out creative loses the click first, so without CTR this is a warning to look past the ad, not fatigue.`;
+    }
     if (past.length === 1) {
       return `Only ${past[0]} meets both conditions: its ${definition.window}-day average is past the threshold, and each of the last ${run} was below it. One metric is a warning; ${definition.metricsNeeded} are needed for fatigued.`;
     }
@@ -88,6 +91,9 @@ function verdictSentence(prediction, diagnosis, platform) {
 function ruleEvaluated(prediction, diagnosis, platform) {
   const { definition, signals, frequency } = diagnosis;
   const parts = [`${definition.metricsPast} of ${TRIAD.length} metrics past threshold, ${definition.metricsNeeded} needed`];
+  if (definition.metricsPast >= definition.metricsNeeded) {
+    parts.push(definition.ctrInvolved ? `CTR is among those slipping (${pct(signals.ctr.change)})` : `CTR is not slipping (${pct(signals.ctr.change)}, needs a drop of ${percentOf(definition.ctrInvolvedLevel)} or more)`);
+  }
   parts.push(frequency.reported
     ? `frequency ${frequency.windowAvg.toFixed(1)} ${frequency.isHigh ? 'over' : 'under'} the cap of ${frequency.limit}`
     : `frequency not reported by ${platformName(platform)}`);
@@ -420,7 +426,8 @@ function Definition({ series, prediction, diagnosis, platform }) {
         <ul className="space-y-1.5 list-disc pl-5">
           <li>
             <span className="font-medium text-gray-900">Fatigued</span>: {definition.metricsNeeded} or more of CTR, CVR and ROAS past
-            their thresholds ({TRIAD.map((k) => drop(definition.thresholds[k])).join(', ')}), or frequency over
+            their thresholds ({TRIAD.map((k) => drop(definition.thresholds[k])).join(', ')}) with CTR itself down at
+            least {percentOf(definition.thresholds.ctr / 2)} (a worn-out creative loses the click first), or frequency over
             the {platformName(platform)} cap of {definition.frequencyLimit}. Frequency is impressions per person since launch.
           </li>
           <li>

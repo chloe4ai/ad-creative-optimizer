@@ -544,8 +544,8 @@ export default function HowItWorks({ onSelectCreative, isDemo = true }) {
     },
     {
       status: 'fatigued',
-      when: `Two or more of CTR, CVR and ROAS are past their thresholds (${thresholdList}), or frequency is over the platform cap.`,
-      detail: 'Frequency over the cap is enough by itself, even while the three metrics still hold.',
+      when: `Two or more of CTR, CVR and ROAS are past their thresholds (${thresholdList}) and CTR is itself down at least ${whole(T.ctrDropPercent / 2)}, or frequency is over the platform cap.`,
+      detail: 'CTR has to be part of it: a worn-out creative loses the click first. CVR and ROAS falling while CTR holds is a warning to look past the ad. Frequency over the cap is enough by itself.',
     },
   ];
 
@@ -665,7 +665,7 @@ export default function HowItWorks({ onSelectCreative, isDemo = true }) {
           <p>
             A creative is <strong>fatigued</strong> when at least two of CTR, CVR and ROAS have dropped past their
             thresholds ({thresholdList}) against the creative&apos;s own earlier performance and stayed there for {run} days
-            in a row, or when frequency is over the platform&apos;s cap.
+            in a row, with CTR among the metrics slipping, or when frequency is over the platform&apos;s cap.
           </p>
           <p>
             The comparison is always the creative against itself: the average of its most recent days against the
@@ -944,9 +944,10 @@ export default function HowItWorks({ onSelectCreative, isDemo = true }) {
             cannot be observed, only its effects, so a CTR drop there cannot be confirmed as repeat exposure.
           </li>
           <li>
-            <strong className="text-gray-900">The verdict can fire for a problem that is not the creative.</strong> The
-            rule counts CVR and ROAS, so a broken landing page or a more expensive auction can still produce a Warning
-            or Fatigued verdict. The diagnosis is what separates those cases; read it before replacing anything.
+            <strong className="text-gray-900">A warning is not always about the creative.</strong> Fatigued needs CTR
+            to be slipping, so a broken landing page or a more expensive auction cannot produce it. They do still raise
+            a Warning, because something needs a human; the diagnosis says it is not the creative and the
+            recommendation is to keep it.
           </li>
           <li>
             <strong className="text-gray-900">No significance gate on the verdict.</strong> The detail view shows how

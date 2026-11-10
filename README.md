@@ -23,6 +23,8 @@ Five decisions in this repo are worth defending, because each one is a place whe
 **1. Fatigue is a multi-metric verdict, not a CTR trigger.**
 CTR alone is noisy and moves for reasons that have nothing to do with the creative — audience expansion, a competitor pausing, a holiday. A single-metric alarm generates the kind of false positives that get an alerting product turned off in week three. So a creative is only called fatigued when **two or more** of CTR, CVR and ROAS have degraded past their own thresholds, or when frequency alone has run past the platform's ceiling.
 
+And CTR has to be one of the metrics slipping. A worn-out creative loses the click first; when CVR and ROAS fall while CTR holds, the problem is after the click (landing page, price, stock) or in the auction, and a new creative would not fix it. That case is a warning to look, with a recommendation to keep the creative, never a fatigue call.
+
 The thresholds are deliberately asymmetric, in `src/services/prediction.js`:
 
 | Signal | Drop that counts as fatigue | Why not the same number |
@@ -68,8 +70,8 @@ This is the whole rule, as implemented in `FatiguePredictor.predict()`. Nothing 
 
 | Status | Rule | Recommendation |
 |---|---|---|
-| `fatigued` | Two or more of CTR, CVR, ROAS are past their thresholds, **or** frequency is over the cap | `pause` |
-| `warning` | Exactly one metric is past its threshold, **or** any metric's recent average is down by more than half its threshold (CTR −7.5%, CVR −10%, ROAS −12.5%), persistence not required | `rotate` |
+| `fatigued` | Two or more of CTR, CVR, ROAS are past their thresholds **and** CTR's recent average is down by at least half its threshold (−7.5%), **or** frequency is over the cap | `pause` |
+| `warning` | Not fatigued, and at least one metric is past its threshold **or** any metric's recent average is down by more than half its threshold (CTR −7.5%, CVR −10%, ROAS −12.5%), persistence not required | `rotate` when CTR is among those slipping, otherwise `keep` |
 | `healthy` | Neither | `keep` |
 | `unknown` | Fewer than 3 days with impressions | `keep` |
 
@@ -194,7 +196,7 @@ The API is built to run as a private service behind one dashboard, and the contr
 - **The decay model is deliberately simple.** Exponential decay against a self-baseline is legible and defensible; it is not a survival model and it does not decompose seasonality. That is a conscious first cut — a model a marketer cannot explain is a model a marketer will not act on. A hazard model with covariates is the honest next step, once there is enough labelled rotation history to validate one against.
 - **Thresholds are global, not learned.** They should eventually be fit per account and per objective. Right now they are informed defaults, not fitted parameters.
 - **No holdout.** The system asserts a verdict and a CTR half-life but does not yet score itself against what actually happened. The measurement I would build next: log every prediction, compare it to the realised decay, and publish precision at the alert level — an alerting product that never grades itself is asking for trust it has not earned.
-- **The verdict still counts CVR.** The status rule is "two of three", and CVR and the ROAS it drags down are two. A sold-out size or a broken checkout can therefore read as Warning or Fatigued with a `pause` recommendation while the ad is doing its job. Only the diagnosis separates it (`post_click_problem`, `cost_pressure`, `isCreativeProblem: false`); the stored status, the recommendation and the alert trigger do not. Until the verdict is gated on the pattern, read the status as "this needs a human" and the diagnosis as "this is why."
+- **A warning is not always about the creative.** Fatigue requires CTR to be slipping, so a sold-out size, a broken checkout or a pricier auction cannot be called fatigue. They still raise a `warning` (something needs a human) and still alert; the diagnosis (`post_click_problem`, `cost_pressure`, `isCreativeProblem: false`) and a `keep` recommendation say the creative is not the thing to change.
 - **Evidence strength is reported, not enforced.** `diagnose()` says whether a drop is strong, moderate or weak evidence against the creative's own day-to-day noise, but a metric that crosses its threshold on a noisy, low-volume history raises the same verdict as one that crosses cleanly. `confidence` does not cover this either: it counts days, not impressions.
 - **The baseline can include the start of the decline.** Everything before the recent window is baseline, so a creative that began sliding before that window has a baseline that is already lower than its real peak, which understates the drop. It also means the windows are fixed positions in the history, not a detected change point.
 - **Frequency is only read from Meta, and the cap assumes a frequency the adapter does not yet supply.** The caps are meant as average impressions per person over the life of the ad, which is how the demo data is generated (cumulative since launch). The Meta adapter (`src/adapters/meta.js`) requests `frequency` and reads it off each row of a date-ranged insights report, but a per-row value from such a report describes that row's date range, not the run since launch. So against a live account the frequency rule compares a short-period number with a lifetime cap. For the cap to mean what it says, the adapter needs to request a cumulative (since launch) or rolling 7-day frequency and the cap needs to be stated for that same period. Platforms that report nothing fall back to the metric triad alone.

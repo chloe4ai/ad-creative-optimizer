@@ -104,7 +104,7 @@ export class FatiguePredictor {
     const fatigueDate = this.estimateFatigueDate(metricsChange, spanDays, now, window);
 
     // 生成建议
-    const recommendation = this.generateRecommendation(status);
+    const recommendation = this.generateRecommendation(status, metricsChange);
 
     return {
       status,
@@ -205,20 +205,29 @@ export class FatiguePredictor {
     };
   }
 
+  /**
+   * CTR 是否「参与」了下滑：窗口均值跌幅超过 CTR 阈值的一半。
+   * 素材疲劳先丢的是点击；点击没动而转化 / 回报掉了，问题在点击之后（落地页、价格、
+   * 库存、竞价成本），换素材解决不了，所以不能算疲劳。
+   */
+  clickSignalInvolved(metricsChange) {
+    return metricsChange.ctr.change < -this.thresholds.ctrDropPercent / 2;
+  }
+
   determineStatus(metricsChange) {
     const { ctr, cvr, roas, frequency } = metricsChange;
 
-    // 严重疲劳：多个指标同时下降
+    // 严重疲劳：多个指标同时下降，且 CTR 参与其中；或频次超上限
     const fatiguedCount = [ctr.isFatigued, cvr.isFatigued, roas.isFatigued].filter(Boolean).length;
 
-    if (fatiguedCount >= 2 || frequency.isHigh) {
+    if ((fatiguedCount >= 2 && this.clickSignalInvolved(metricsChange)) || frequency.isHigh) {
       return 'fatigued';
     }
 
     // 警告：跌幅已经过半程阈值。只要是负数就报警会把一半健康素材误伤。
     const halfway = (metric, threshold) => metric.change < -threshold / 2;
     if (
-      fatiguedCount === 1 ||
+      fatiguedCount >= 1 ||
       halfway(ctr, this.thresholds.ctrDropPercent) ||
       halfway(cvr, this.thresholds.cvrDropPercent) ||
       halfway(roas, this.thresholds.roasDropPercent)
@@ -265,11 +274,13 @@ export class FatiguePredictor {
     return Math.max(0, Math.round(diff / 864e5));
   }
 
-  generateRecommendation(status) {
-    // 状态决定动作：fatigued 立即停，warning 准备替换素材，其余保持。
-    // 「该换素材还是该查落地页」这类按原因区分的建议在 diagnose().pattern.action 里。
+  generateRecommendation(status, metricsChange) {
+    // fatigued 立即停；warning 且 CTR 参与下滑 → 准备替换素材；
+    // warning 但 CTR 没动（问题在点击之后）→ 素材保留，该查什么见 diagnose().pattern.action。
     if (status === 'fatigued') return 'pause';
-    if (status === 'warning') return 'rotate';
+    if (status === 'warning') {
+      return !metricsChange || this.clickSignalInvolved(metricsChange) ? 'rotate' : 'keep';
+    }
     return 'keep';
   }
 
@@ -507,6 +518,9 @@ export class FatiguePredictor {
         // The verdict rule, evaluated: how many of the three metrics are past threshold.
         metricsPast: failing.length,
         metricsNeeded: 2,
+        // Fatigue needs the click signal: CTR at least halfway to its own threshold.
+        ctrInvolved: this.clickSignalInvolved(m),
+        ctrInvolvedLevel: thresholdOf.ctr / 2,
         frequencyOverCap: frequency.isHigh,
       },
       signals,

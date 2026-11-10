@@ -176,10 +176,34 @@ test('CVR down with CTR flat -> post_click_problem, not a creative problem', () 
   assert.equal(d.signals.ctr.state, 'holding');
   assert.equal(d.signals.cvr.state, 'past');
   assert.equal(d.lead, 'cvr');
-  // Known limit, pinned on purpose: the verdict rule counts CVR and the ROAS it drags
-  // down, so the status still reads fatigued. Only the diagnosis says "not the creative".
-  assert.equal(prediction.status, 'fatigued');
+  // CVR and the ROAS it drags down are both past threshold, but CTR has not moved, so the
+  // verdict is a warning to look, not fatigue, and the creative is not to be replaced.
+  assert.deepEqual(d.failing, ['cvr', 'roas']);
+  assert.equal(d.definition.ctrInvolved, false);
+  assert.equal(prediction.status, 'warning');
+  assert.equal(prediction.recommendation, 'keep');
   assert.equal(prediction.daysRemaining, null);
+});
+
+test('the verdict and the diagnosis never disagree about whether to replace the creative', () => {
+  const levels = [0, 0.1, 0.3, 0.6];
+  for (const platform of ['meta', 'tiktok']) {
+    for (const dc of levels) for (const dv of levels) for (const cpmUp of [0, 0.4]) for (const aovDrop of [0, 0.3]) for (const freq of [0, 3, 7]) {
+      const rows = build({
+        ctr: step(0.02, dc), cvr: step(0.05, dv), aov: step(50, aovDrop),
+        cpm: (i) => (i < 7 ? 10 : 10 * (1 + cpmUp)), frequency: (i) => (freq ? freq + i * 0.05 : 0),
+      });
+      const { prediction, d } = run(rows, platform);
+      const tag = `${platform} ctr-${dc} cvr-${dv} cpm+${cpmUp} aov-${aovDrop} f${freq}`;
+      if (prediction.status === 'fatigued') {
+        assert.notEqual(d.pattern.isCreativeProblem, false, `${tag}: fatigued but diagnosed as not the creative`);
+        assert.doesNotMatch(d.pattern.action, /Keep the creative|Do not replace|no need to pause/, tag);
+      }
+      if (d.pattern.isCreativeProblem === false) {
+        assert.equal(prediction.recommendation, 'keep', `${tag}: not the creative, so the creative stays`);
+      }
+    }
+  }
 });
 
 test('CPM up 30% with CTR and CVR flat -> cost_pressure, lead cpm', () => {

@@ -24,7 +24,7 @@ const wholePct = (fraction) => `${Math.round(fraction * 100)}%`;
 
 // The verdict rule, written from the engine's own thresholds so the copy cannot drift.
 const { thresholds } = new FatiguePredictor();
-const VERDICT_RULE = `Fatigued means at least two of CTR, CVR and ROAS are down more than ${wholePct(thresholds.ctrDropPercent)}, ${wholePct(thresholds.cvrDropPercent)} and ${wholePct(thresholds.roasDropPercent)} against the creative's own baseline for ${thresholds.consecutiveDays} days running, or frequency is over the platform cap; warning means one metric is past its threshold or any is more than halfway there.`;
+const VERDICT_RULE = `Fatigued means at least two of CTR, CVR and ROAS are down more than ${wholePct(thresholds.ctrDropPercent)}, ${wholePct(thresholds.cvrDropPercent)} and ${wholePct(thresholds.roasDropPercent)} against the creative's own baseline for ${thresholds.consecutiveDays} days running with CTR among those slipping, or frequency is over the platform cap; warning means a metric is past its threshold or more than halfway there.`;
 
 // The signal that moved first and how far, e.g. "CTR −31%", "Frequency 6.5 of 5", "CPM +25%".
 const leadSignal = (creative) => {
