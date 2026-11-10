@@ -140,26 +140,26 @@ const ART = {
   // 7 · Flash Sale Countdown — countdown clock, "ends tonight"
   flashSale: {
     ratio: [400, 400],
-    alt: 'Static image: a countdown clock reading 05:59:42 under the words Flash Sale 40% off, ends tonight',
+    alt: 'Static image: a countdown clock reading 4 days, 5 hours, 59 minutes under the words Flash Sale 40% off, ends Sunday',
     draw: () => (
       <>
         <rect width="400" height="400" fill="#111827" />
         <path d="M250 0 L150 190 H215 L170 400 L330 150 H255 L320 0Z" fill="#facc15" opacity="0.18" />
         <text x="200" y="78" fontSize="24" fontWeight="800" fill="#facc15" textAnchor="middle" letterSpacing="6">FLASH SALE</text>
         <text x="200" y="168" fontSize="86" fontWeight="900" fill="#fff" textAnchor="middle">40% OFF</text>
-        {['05', '59', '42'].map((d, i) => (
+        {['04', '05', '59'].map((d, i) => (
           <g key={d} transform={`translate(${62 + i * 98} 206)`}>
             <rect width="80" height="84" rx="10" fill="#dc2626" />
             <rect y="41" width="80" height="2" fill="#111827" opacity="0.35" />
             <text x="40" y="60" fontSize="46" fontWeight="800" fill="#fff" textAnchor="middle">{d}</text>
-            <text x="40" y="106" fontSize="11" fontWeight="700" fill="#9ca3af" textAnchor="middle">{['HRS', 'MIN', 'SEC'][i]}</text>
+            <text x="40" y="106" fontSize="11" fontWeight="700" fill="#9ca3af" textAnchor="middle">{['DAYS', 'HRS', 'MIN'][i]}</text>
           </g>
         ))}
         {[150, 248].map((x) => (
           <text key={x} x={x} y="262" fontSize="40" fontWeight="800" fill="#fff" textAnchor="middle">:</text>
         ))}
         <rect x="100" y="334" width="200" height="42" rx="21" fill="#facc15" />
-        <text x="200" y="362" fontSize="20" fontWeight="800" fill="#111827" textAnchor="middle">ENDS TONIGHT!</text>
+        <text x="200" y="362" fontSize="20" fontWeight="800" fill="#111827" textAnchor="middle">ENDS SUNDAY</text>
       </>
     ),
   },
@@ -180,6 +180,51 @@ const ART = {
         <text x="94" y="48" fontSize="16" fontWeight="700" fill="#fff" textAnchor="middle">BEST SELLER</text>
         <text x="376" y="50" fontSize="22" fill="#f59e0b" textAnchor="end">★★★★★</text>
         <text x="200" y="382" fontSize="20" fontWeight="800" fill={INK} textAnchor="middle">Ridgeline 28L · $120</text>
+      </>
+    ),
+  },
+  // 9 · Trail Shoe Launch — product hero
+  trailShoe: {
+    ratio: [400, 400],
+    alt: 'Static image: a trail running shoe on a muddy slope with the words The Switchback, grip for the wet days',
+    draw: () => (
+      <>
+        <rect width="400" height="400" fill="#fef3c7" />
+        <path d="M0 300 L400 220 V400 H0Z" fill="#92400e" />
+        <path d="M0 330 L400 262 V400 H0Z" fill="#78350f" />
+        <g transform="rotate(-11 200 220)">
+          <path d="M96 236 q10 -70 66 -76 l34 44 q60 12 100 34 q18 10 14 30 h-214z" fill="#ea580c" />
+          <path d="M96 236 h214 v14 q0 10 -12 10 h-190 q-12 0 -12 -10z" fill={INK} />
+          <path d="M170 172 l26 34 M186 166 l26 36 M204 176 l20 28" stroke="#fff" strokeWidth="5" strokeLinecap="round" />
+          {[112, 142, 172, 202, 232, 262].map((x) => (
+            <rect key={x} x={x} y="258" width="16" height="10" fill={INK} />
+          ))}
+        </g>
+        <text x="28" y="64" fontSize="20" fontWeight="700" fill="#9a3412" letterSpacing="3">NEW</text>
+        <text x="28" y="112" fontSize="44" fontWeight="900" fill={INK}>THE SWITCHBACK</text>
+        <text x="28" y="372" fontSize="20" fontWeight="700" fill="#fff">Grip for the wet days · $89</text>
+      </>
+    ),
+  },
+  // 10 · Gift Guide Video — vertical video, wrapped gifts
+  giftGuide: {
+    ratio: [360, 640],
+    alt: 'Vertical video frame: three wrapped gifts in a stack, captioned 6 gifts for people who go outside',
+    draw: () => (
+      <>
+        <rect width="360" height="640" fill="#14532d" />
+        <circle cx="300" cy="120" r="80" fill="#166534" />
+        <circle cx="40" cy="520" r="110" fill="#166534" />
+        <text x="180" y="110" fontSize="64" fontWeight="900" fill="#fff" textAnchor="middle">6 GIFTS</text>
+        <text x="180" y="146" fontSize="18" fontWeight="700" fill="#bbf7d0" textAnchor="middle">FOR PEOPLE WHO GO OUTSIDE</text>
+        <rect x="80" y="330" width="200" height="130" rx="8" fill="#dc2626" />
+        <rect x="168" y="330" width="24" height="130" fill="#fde68a" />
+        <rect x="80" y="384" width="200" height="22" fill="#fde68a" />
+        <rect x="110" y="246" width="140" height="84" rx="8" fill="#f8fafc" />
+        <rect x="170" y="246" width="20" height="84" fill="#dc2626" />
+        <rect x="140" y="190" width="80" height="56" rx="8" fill="#facc15" />
+        <rect x="174" y="190" width="12" height="56" fill="#14532d" />
+        <path d="M180 190 q-28 -34 -34 -8 q0 14 34 8 q34 6 34 -8 q-6 -26 -34 8z" fill="#dc2626" />
       </>
     ),
   },

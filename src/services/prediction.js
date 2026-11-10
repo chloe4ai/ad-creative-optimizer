@@ -101,7 +101,7 @@ export class FatiguePredictor {
     const fatigueDate = this.estimateFatigueDate(metricsChange, spanDays, now, window);
 
     // 生成建议
-    const recommendation = this.generateRecommendation(status, metricsChange);
+    const recommendation = this.generateRecommendation(status);
 
     return {
       status,
@@ -254,13 +254,6 @@ export class FatiguePredictor {
     return this.addDays(now, clamped);
   }
 
-  estimateDecayRate(metricsChange) {
-    const { ctr, cvr } = metricsChange;
-    // 简单的线性衰减估计
-    const avgChange = (ctr.change + cvr.change) / 2;
-    return avgChange < 0 ? Math.abs(avgChange) : 0.01;
-  }
-
   calculateDaysRemaining(fatigueDate, now = new Date()) {
     if (!fatigueDate) return null;
     const diff = fatigueDate.getTime() - now.getTime();
@@ -269,20 +262,344 @@ export class FatiguePredictor {
     return Math.max(0, Math.round(diff / 864e5));
   }
 
-  generateRecommendation(status, metricsChange) {
-    if (status === 'fatigued') {
-      return 'pause';
-    }
-
-    if (status === 'warning') {
-      // 检查具体是哪个指标出问题
-      if (metricsChange.frequency.isHigh) {
-        return 'rotate'; // 需要换受众或频次
-      }
-      return 'rotate'; // 建议准备新素材
-    }
-
+  generateRecommendation(status) {
+    // 状态决定动作：fatigued 立即停，warning 准备替换素材，其余保持。
+    // 「该换素材还是该查落地页」这类按原因区分的建议在 diagnose().pattern.action 里。
+    if (status === 'fatigued') return 'pause';
+    if (status === 'warning') return 'rotate';
     return 'keep';
+  }
+
+  // ---------------------------------------------------------------------------
+  // Diagnosis: why the verdict came out the way it did.
+  //
+  // predict() answers "what is the status"; diagnose() answers the questions a media
+  // buyer asks next: which signal moved first, how sure are we that it is not noise,
+  // is this the creative wearing out or something else (landing page, auction cost),
+  // and what should be done about it. It is a separate, pure method so predict()'s
+  // return shape (stored in the predictions table) does not change.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * @param {Object} prediction - the object predict() returned for these metrics
+   * @param {Array} rawMetrics - the same daily rows that were passed to predict()
+   * @returns {Object} definition, per-signal detail, frequency, cost, pattern, projection
+   */
+  diagnose(prediction, rawMetrics) {
+    if (!prediction || prediction.status === 'unknown' || !prediction.metricsChange || !Array.isArray(rawMetrics)) {
+      return {
+        pattern: {
+          code: 'insufficient_data',
+          label: 'Not enough data',
+          isCreativeProblem: null,
+          cause: `Fewer than ${this.thresholds.minDataDays} days with impressions, so there is no baseline to compare against.`,
+          action: 'Wait for more delivery before judging this creative.',
+        },
+        definition: null, signals: null, frequency: null, cost: null, lead: null, projection: null,
+      };
+    }
+
+    const rows = this.normalizeMetrics(rawMetrics);
+    const m = prediction.metricsChange;
+    const n = rows.length;
+    const window = prediction.window;
+    const recent = rows.slice(-window);
+    const base = rows.slice(0, -window);
+    const dateOf = (row) => (row ? (row.metric_date ?? row.date ?? null) : null);
+    const t = this.thresholds;
+    const thresholdOf = { ctr: t.ctrDropPercent, cvr: t.cvrDropPercent, roas: t.roasDropPercent };
+
+    const sum = (list, key) => list.reduce((acc, row) => acc + (Number(row[key]) || 0), 0);
+    // Revenue is not stored by the sync service; reconstruct it from roas x spend.
+    const revenueOf = (row) => (row.revenue !== undefined ? Number(row.revenue) || 0 : (row.roas || 0) * (row.spend || 0));
+    const pooled = (list) => {
+      const impressions = sum(list, 'impressions');
+      const clicks = sum(list, 'clicks');
+      const conversions = sum(list, 'conversions');
+      const spend = sum(list, 'spend');
+      const revenue = list.reduce((acc, row) => acc + revenueOf(row), 0);
+      return { impressions, clicks, conversions, spend, revenue, days: list.length };
+    };
+    const pb = pooled(base);
+    const pr = pooled(recent);
+    const ratio = (num, den) => (den > 0 ? num / den : null);
+    const change = (curr, prev) => (curr === null || prev === null || prev === 0 ? null : (curr - prev) / prev);
+
+    // --- how strong is the evidence that a metric moved (vs. day-to-day noise) ---
+    const evidenceLevel = (z) => {
+      if (z === null || !Number.isFinite(z)) return 'unknown';
+      const a = Math.abs(z);
+      return a >= 3 ? 'strong' : a >= 2 ? 'moderate' : 'weak';
+    };
+    // Two-proportion z-test on pooled counts (CTR = clicks/impressions, CVR = conversions/clicks).
+    const proportionZ = (x1, n1, x2, n2) => {
+      if (!(n1 > 0) || !(n2 > 0)) return null;
+      const p = (x1 + x2) / (n1 + n2);
+      const se = Math.sqrt(p * (1 - p) * (1 / n1 + 1 / n2));
+      return se > 0 ? (x2 / n2 - x1 / n1) / se : null;
+    };
+    // Welch t on daily values, for metrics that are not a simple proportion (ROAS).
+    const welch = (a, b) => {
+      if (a.length < 2 || b.length < 2) return null;
+      const mean = (v) => v.reduce((x, y) => x + y, 0) / v.length;
+      const variance = (v, mu) => v.reduce((x, y) => x + (y - mu) ** 2, 0) / (v.length - 1);
+      const ma = mean(a); const mb = mean(b);
+      const se = Math.sqrt(variance(a, ma) / a.length + variance(b, mb) / b.length);
+      return se > 0 ? (mb - ma) / se : null;
+    };
+    const hasCounts = pb.impressions > 0 && pr.impressions > 0 && (pb.clicks > 0 || pr.clicks > 0);
+    const zOf = {
+      ctr: hasCounts ? proportionZ(pb.clicks, pb.impressions, pr.clicks, pr.impressions)
+        : welch(base.map((r) => r.ctr || 0), recent.map((r) => r.ctr || 0)),
+      cvr: hasCounts && pb.clicks > 0 && pr.clicks > 0 && (pb.conversions > 0 || pr.conversions > 0)
+        ? proportionZ(pb.conversions, pb.clicks, pr.conversions, pr.clicks)
+        : welch(base.map((r) => r.cvr || 0), recent.map((r) => r.cvr || 0)),
+      roas: welch(base.map((r) => r.roas || 0), recent.map((r) => r.roas || 0)),
+    };
+
+    // Daily compounding rate from a least-squares line through ln(value) over the recent
+    // window: the slope the metric is on right now, as opposed to the window-to-window
+    // rate the fatigue date uses (which spreads the drop over the whole history).
+    const trendRate = (key) => {
+      const pts = recent.map((row, i) => [i, row[key]]).filter(([, v]) => v > 0);
+      if (pts.length < 3) return null;
+      const mx = pts.reduce((a, [x]) => a + x, 0) / pts.length;
+      const my = pts.reduce((a, [, v]) => a + Math.log(v), 0) / pts.length;
+      const sxx = pts.reduce((a, [x]) => a + (x - mx) ** 2, 0);
+      if (sxx === 0) return null;
+      const sxy = pts.reduce((a, [x, v]) => a + (x - mx) * (Math.log(v) - my), 0);
+      return Math.exp(sxy / sxx) - 1;
+    };
+
+    const LABEL = { ctr: 'CTR', cvr: 'CVR', roas: 'ROAS' };
+    const signals = {};
+    for (const key of ['ctr', 'cvr', 'roas']) {
+      const v = m[key];
+      const threshold = thresholdOf[key];
+      const past = v.isFatigued;
+      const bending = v.change < -threshold / 2;
+      const crossedIndex = v.consecutiveDaysBelow > 0 ? n - v.consecutiveDaysBelow : null;
+      const z = zOf[key];
+      signals[key] = {
+        key,
+        label: LABEL[key],
+        baseline: v.baseline,
+        current: v.current,
+        change: v.change,
+        threshold,
+        // The level (in the metric's own units) a day has to fall below to count.
+        thresholdValue: v.baseline * (1 - threshold),
+        // past: over the threshold for the required run. bending: more than halfway there
+        // (or over it, but not for enough consecutive days). holding / improving: neither.
+        state: past ? 'past' : bending ? 'bending' : v.change > threshold / 2 ? 'improving' : 'holding',
+        consecutiveDaysBelow: v.consecutiveDaysBelow,
+        crossedIndex,
+        crossedDate: crossedIndex === null ? null : dateOf(rows[crossedIndex]),
+        trendRatePerDay: trendRate(key),
+        evidence: { z, level: evidenceLevel(z) },
+      };
+    }
+
+    // --- frequency (only platforms that report it; others send 0) ---
+    const freqValues = rows.map((row) => row.frequency || 0);
+    const reported = freqValues.some((f) => f > 0);
+    const limit = m.frequency.limit;
+    let frequency = { reported: false, limit, isHigh: false, latest: null, windowAvg: null, slopePerDay: null, firstOverIndex: null, firstOverDate: null, daysToCap: null };
+    if (reported) {
+      const latest = freqValues[n - 1];
+      const slopePerDay = window > 1 ? (freqValues[n - 1] - freqValues[n - window]) / (window - 1) : 0;
+      const firstOverIndex = freqValues.findIndex((f) => f > limit);
+      frequency = {
+        reported: true,
+        limit,
+        isHigh: m.frequency.isHigh,
+        latest,
+        windowAvg: m.frequency.current,
+        slopePerDay,
+        firstOverIndex: firstOverIndex === -1 ? null : firstOverIndex,
+        firstOverDate: firstOverIndex === -1 ? null : dateOf(rows[firstOverIndex]),
+        daysToCap: latest < limit && slopePerDay > 0 ? Math.ceil((limit - latest) / slopePerDay) : null,
+      };
+    }
+
+    // --- cost side, from pooled sums (what a click / conversion / impression costs) ---
+    const costMetric = (fb, fr) => {
+      const baseline = fb; const current = fr;
+      return { baseline, current, change: change(current, baseline) };
+    };
+    const cost = {
+      cpm: costMetric(ratio(pb.spend * 1000, pb.impressions), ratio(pr.spend * 1000, pr.impressions)),
+      cpc: costMetric(ratio(pb.spend, pb.clicks), ratio(pr.spend, pr.clicks)),
+      cpa: costMetric(ratio(pb.spend, pb.conversions), ratio(pr.spend, pr.conversions)),
+      aov: costMetric(ratio(pb.revenue, pb.conversions), ratio(pr.revenue, pr.conversions)),
+      spendPerDay: costMetric(ratio(pb.spend, pb.days), ratio(pr.spend, pr.days)),
+    };
+
+    // --- which pattern is this ---
+    const pattern = this.classifyPattern(prediction, signals, frequency, cost);
+
+    // --- which signal moved first ---
+    // Frequency over the cap leads by construction (it is the cause, the triad is the effect).
+    // Otherwise: the metric that has been below its threshold longest; failing that, the one
+    // furthest along toward its threshold.
+    let lead = null;
+    if (pattern.code === 'cost_pressure') lead = 'cpm';
+    else if (frequency.isHigh) lead = 'frequency';
+    else {
+      const ranked = Object.values(signals)
+        .filter((sig) => sig.state === 'past' || sig.state === 'bending')
+        .sort((a, b) => (b.consecutiveDaysBelow - a.consecutiveDaysBelow)
+          || (a.change / a.threshold - b.change / b.threshold));
+      lead = ranked.length ? ranked[0].key : null;
+    }
+
+    // --- projection: when does CTR reach half its own baseline ---
+    // engineDays is prediction.daysRemaining (window-to-window rate). trendDays re-runs the
+    // same question from the latest level at the recent trend's rate; when the decline
+    // started late the two disagree, and the honest answer is the range.
+    const ctrRate = signals.ctr.trendRatePerDay;
+    const tail = rows.slice(-Math.min(3, window));
+    const latestRatio = m.ctr.baseline > 0 ? (sum(tail, 'ctr') / tail.length) / m.ctr.baseline : null;
+    let trendDays = null;
+    if (latestRatio !== null && ctrRate !== null && ctrRate < 0 && m.ctr.change < 0) {
+      trendDays = latestRatio <= 0.5 ? 0
+        : Math.min(t.maxHorizonDays, Math.max(0, Math.round(Math.log(0.5 / latestRatio) / Math.log(1 + ctrRate))));
+    }
+    const engineDays = Number.isFinite(prediction.daysRemaining) ? prediction.daysRemaining : null;
+    const bounds = [engineDays, trendDays].filter((d) => d !== null);
+    const projection = {
+      basis: 'ctr_half_baseline',
+      level: m.ctr.baseline * 0.5,
+      engineDays,
+      trendDays,
+      minDays: bounds.length ? Math.min(...bounds) : null,
+      maxDays: bounds.length ? Math.max(...bounds) : null,
+      // Why there is no date, when there is none.
+      note: engineDays === null ? 'CTR is flat or rising against its baseline, so there is no CTR decline to extrapolate.' : null,
+    };
+
+    const failing = Object.values(signals).filter((sig) => sig.state === 'past').map((sig) => sig.key);
+
+    return {
+      definition: {
+        window,
+        baselineDays: n - window,
+        historyDays: n,
+        requiredRun: m.requiredRun,
+        thresholds: thresholdOf,
+        frequencyLimit: limit,
+        fatigueLevel: 0.5,
+        // The verdict rule, evaluated: how many of the three metrics are past threshold.
+        metricsPast: failing.length,
+        metricsNeeded: 2,
+        frequencyOverCap: frequency.isHigh,
+      },
+      signals,
+      failing,
+      frequency,
+      cost,
+      lead,
+      pattern,
+      projection,
+    };
+  }
+
+  /**
+   * Name the pattern. First match wins. "bend" = the window average has moved more than
+   * half a threshold; "past" = over the threshold for the required consecutive days.
+   * isCreativeProblem says whether replacing the creative is the fix at all.
+   */
+  classifyPattern(prediction, signals, frequency, cost) {
+    const { ctr, cvr, roas } = signals;
+    const bend = (sig) => sig.state === 'past' || sig.state === 'bending';
+    const pct = (v) => `${v > 0 ? '+' : '−'}${Math.abs(Math.round(v * 100))}%`;
+    const cpmUp = cost.cpm.change !== null && cost.cpm.change >= 0.15;
+
+    if (prediction.status === 'healthy') {
+      return prediction.fatigueDate
+        ? {
+          code: 'slow_drift',
+          label: 'Healthy, drifting down slowly',
+          isCreativeProblem: false,
+          cause: `Every metric is within half its threshold of the creative's own baseline. CTR is ${pct(ctr.change)}, a slow drift rather than a drop.`,
+          action: 'No action. Keep it running and have the next concept in the queue.',
+        }
+        : {
+          code: 'healthy',
+          label: 'Healthy',
+          isCreativeProblem: false,
+          cause: 'CTR, CVR and ROAS are all holding against the creative\'s own baseline.',
+          action: 'No action.',
+        };
+    }
+
+    if (frequency.isHigh && !bend(ctr) && !bend(cvr) && !bend(roas)) {
+      return {
+        code: 'saturation_leading',
+        label: 'Audience saturated, metrics have not bent yet',
+        isCreativeProblem: true,
+        cause: `Frequency is ${frequency.windowAvg.toFixed(1)} against a cap of ${frequency.limit}: the same people keep being shown this ad. Repeat exposure is the cause of fatigue and CTR, CVR and ROAS are the effect, so frequency crosses first.`,
+        action: 'Widen or swap the audience, or rotate in a new creative for this one, before CTR starts to fall.',
+      };
+    }
+
+    if (!bend(ctr) && !bend(cvr) && cpmUp && bend(roas)) {
+      return {
+        code: 'cost_pressure',
+        label: 'Auction got more expensive, not creative fatigue',
+        isCreativeProblem: false,
+        cause: `People respond to the ad as before (CTR ${pct(ctr.change)}, CVR ${pct(cvr.change)}), but each thousand impressions costs ${pct(cost.cpm.change)}. ROAS is down because the media price went up, not because the creative wore out.`,
+        action: 'Do not replace the creative. Review bids, budget and placements, and check whether CPM rose across the whole account.',
+      };
+    }
+
+    if (!bend(ctr) && bend(cvr)) {
+      return {
+        code: 'post_click_problem',
+        label: 'Post-click problem, not creative fatigue',
+        isCreativeProblem: false,
+        cause: `The ad still earns the click (CTR ${pct(ctr.change)}), but fewer of those clicks convert (CVR ${pct(cvr.change)}). A worn-out creative loses the click first; losing only the conversion points past the ad, to the landing page, price, stock or tracking.`,
+        action: 'Keep the creative. Check the landing page, offer, stock levels and conversion tracking.',
+      };
+    }
+
+    if (ctr.state === 'past' && cvr.state === 'past') {
+      return {
+        code: 'full_funnel_fatigue',
+        label: 'Burned out: fewer click, and those who click buy less',
+        isCreativeProblem: true,
+        cause: `CTR ${pct(ctr.change)} and CVR ${pct(cvr.change)} are both past threshold, and ROAS is ${pct(roas.change)}. The responsive part of the audience has been used up: the ad now reaches people who have already ignored it or who were never a good fit.`,
+        action: 'Pause it and replace it with a new concept, not a variation of this one.',
+      };
+    }
+
+    if (bend(ctr) && frequency.reported && frequency.slopePerDay > 0 && (frequency.isHigh || frequency.latest >= 0.6 * frequency.limit)) {
+      return {
+        code: 'creative_wearout',
+        label: 'Creative wear-out: same people, seeing it again',
+        isCreativeProblem: true,
+        cause: `CTR is ${pct(ctr.change)} while frequency has climbed to ${frequency.latest.toFixed(1)} (cap ${frequency.limit}) and is still rising. Each repeat view is less likely to earn a click.${cvr.change > 0.05 ? ` CVR is ${pct(cvr.change)}: the curious have stopped clicking and the people who still click came to buy.` : ''}`,
+        action: 'Prepare a replacement with a new hook or visual for the same audience, or widen the audience to bring frequency down.',
+      };
+    }
+
+    if (bend(ctr)) {
+      return {
+        code: 'click_erosion',
+        label: 'Click-through erosion',
+        isCreativeProblem: true,
+        cause: `CTR is ${pct(ctr.change)} against its own baseline while CVR is ${pct(cvr.change)}: fewer people click, but the ones who do convert as before.${frequency.reported ? '' : ' This platform does not report frequency, so repeat exposure cannot be confirmed as the cause.'}`,
+        action: 'Prepare a replacement. If cost is paid per click and ROAS is holding, there is no need to pause early.',
+      };
+    }
+
+    return {
+      code: 'efficiency_drop',
+      label: 'Return is down without a click or conversion drop',
+      isCreativeProblem: false,
+      cause: `ROAS is ${pct(roas.change)} while CTR (${pct(ctr.change)}) and CVR (${pct(cvr.change)}) hold. That leaves order value or media cost.`,
+      action: 'Check average order value and CPM before touching the creative.',
+    };
   }
 
   calculateConfidence(dataPoints) {
