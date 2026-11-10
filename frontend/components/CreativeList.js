@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { format } from 'date-fns';
 import { fetchAPI } from '../lib/api';
+import { CreativeThumb } from './CreativePreview';
 
 export default function CreativeList({ onSelectCreative }) {
   const [creatives, setCreatives] = useState([]);
@@ -148,13 +149,7 @@ export default function CreativeList({ onSelectCreative }) {
                 >
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
-                      {creative.thumbnail_url && (
-                        <img
-                          src={creative.thumbnail_url}
-                          alt=""
-                          className="w-10 h-10 rounded-sm object-cover"
-                        />
-                      )}
+                      <CreativeThumb creative={creative} />
                       <div>
                         <div className="font-medium">{creative.name || creative.creative_id}</div>
                         <div className="text-sm text-gray-500">{creative.headline}</div>

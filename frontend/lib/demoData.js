@@ -43,6 +43,11 @@ const CREATIVE_SPECS = [
     id: 1, name: 'Summer Sale Banner A', platform: 'meta', headline: 'Up to 50% off!',
     campaign_name: 'Summer Sale', days: 14, impressions: 52000, cpm: 9.5,
     ctr: 0.0142, cvr: 0.034, roas: 3.1,
+    creative: {
+      format: 'image', art: 'summerSale', placement: 'Feed', cta: 'Shop now',
+      primary_text: 'Summer gear, up to half off. This week only.',
+      audience: 'Lookalike 1% of past purchasers, ~420k people',
+    },
     shapes: { ctr: { start: 3, rate: 0.95 }, cvr: { start: 5, rate: 0.98 }, roas: { start: 5, rate: 0.97 } },
     frequency: { start: 1.3, perDay: 0.16 },
   },
@@ -52,6 +57,11 @@ const CREATIVE_SPECS = [
     id: 2, name: 'New Arrivals Carousel', platform: 'meta', headline: 'Just dropped',
     campaign_name: 'New Arrivals', days: 24, impressions: 38000, cpm: 11,
     ctr: 0.0118, cvr: 0.041, roas: 3.6,
+    creative: {
+      format: 'carousel', art: 'newArrivals', placement: 'Feed', cta: 'Shop now',
+      primary_text: 'Fresh for the trail: three new pieces, in stock now.',
+      audience: 'Site visitors in the last 30 days, ~150k people',
+    },
     shapes: { ctr: { start: 0, rate: 1.0015 }, cvr: { start: 0, rate: 1 }, roas: { start: 0, rate: 1.001 } },
     frequency: { start: 1.9, perDay: 0.2 },
   },
@@ -61,6 +71,11 @@ const CREATIVE_SPECS = [
     id: 3, name: 'Retargeting Loop V2', platform: 'google', headline: 'We miss you',
     campaign_name: 'Retargeting', days: 21, impressions: 61000, cpm: 6,
     ctr: 0.0094, cvr: 0.052, roas: 4.4,
+    creative: {
+      format: 'display', art: 'retargeting', placement: 'Display network', cta: 'Return to cart',
+      primary_text: 'Your cart is still here. Free shipping today.',
+      audience: 'Cart abandoners in the last 14 days',
+    },
     shapes: { ctr: { start: 11, rate: 0.95 }, cvr: { start: 0, rate: 1.001 }, roas: { start: 0, rate: 1.0005 } },
   },
   {
@@ -68,6 +83,11 @@ const CREATIVE_SPECS = [
     id: 4, name: 'Brand Awareness Video', platform: 'tiktok', headline: 'Check this out',
     campaign_name: 'Brand Q3', days: 28, impressions: 96000, cpm: 5.2,
     ctr: 0.0087, cvr: 0.018, roas: 1.9,
+    creative: {
+      format: 'video', art: 'brandVideo', placement: 'In-feed video', cta: 'Learn more', video_seconds: 21,
+      primary_text: 'Gear that goes further than you planned to.',
+      audience: 'Broad: outdoor interests, 18-44',
+    },
     shapes: { ctr: { start: 0, rate: 1.002 }, cvr: { start: 0, rate: 1 }, roas: { start: 0, rate: 1.001 } },
   },
   {
@@ -75,6 +95,11 @@ const CREATIVE_SPECS = [
     id: 5, name: 'New User Acquisition', platform: 'tiktok', headline: 'Join now',
     campaign_name: 'UA Q2', days: 21, impressions: 84000, cpm: 6.8,
     ctr: 0.0121, cvr: 0.029, roas: 2.6,
+    creative: {
+      format: 'video', art: 'userAcquisition', placement: 'In-feed video', cta: 'Join now', video_seconds: 12,
+      primary_text: 'New here? $10 off your first order in the app.',
+      audience: 'Interest: hiking and camping, excluding customers',
+    },
     shapes: { ctr: { start: 6, rate: 0.955 }, cvr: { start: 8, rate: 0.965 }, roas: { start: 6, rate: 0.95 } },
   },
   {
@@ -82,6 +107,11 @@ const CREATIVE_SPECS = [
     id: 6, name: 'Spring Collection', platform: 'google', headline: 'Spring is here',
     campaign_name: 'Spring Collection', days: 21, impressions: 47000, cpm: 5.5,
     ctr: 0.0076, cvr: 0.038, roas: 3.8,
+    creative: {
+      format: 'text', placement: 'Search results', cta: null,
+      primary_text: 'New-season jackets, packs and trail shoes. Free returns for 60 days.',
+      audience: 'Keywords: spring hiking gear, rain jacket, trail shoes',
+    },
     shapes: { ctr: { start: 4, rate: 1.003 }, cvr: { start: 0, rate: 1.001 }, roas: { start: 0, rate: 1.002 } },
   },
   {
@@ -89,6 +119,11 @@ const CREATIVE_SPECS = [
     id: 7, name: 'Flash Sale Countdown', platform: 'meta', headline: 'Ends tonight!',
     campaign_name: 'Flash Sale', days: 10, impressions: 71000, cpm: 10.5,
     ctr: 0.0168, cvr: 0.031, roas: 2.9,
+    creative: {
+      format: 'image', art: 'flashSale', placement: 'Feed', cta: 'Shop now',
+      primary_text: '40% off everything. The clock is running, ends tonight!',
+      audience: 'Email subscribers and past purchasers, ~200k people',
+    },
     shapes: { ctr: { start: 2, rate: 0.915 }, cvr: { start: 2, rate: 1.02 }, roas: { start: 3, rate: 0.975 } },
     frequency: { start: 1.4, perDay: 0.24 },
   },
@@ -97,9 +132,17 @@ const CREATIVE_SPECS = [
     id: 8, name: 'Product Showcase', platform: 'google', headline: 'Best seller',
     campaign_name: 'Always On', days: 14, impressions: 55000, cpm: 5.8,
     ctr: 0.0081, cvr: 0.044, roas: 4.1,
+    creative: {
+      format: 'image', art: 'productShowcase', placement: 'Shopping results', cta: 'Shop now',
+      primary_text: 'Ridgeline 28L daypack. 4.8 stars from 2,100 reviews.',
+      audience: 'Shopping queries: daypack, hiking backpack',
+    },
     shapes: { ctr: { start: 2, rate: 0.991 }, cvr: { start: 0, rate: 0.998 }, roas: { start: 0, rate: 0.997 } },
   },
 ];
+
+// The advertiser in every sample ad: a fictional outdoor-gear shop.
+const BRAND = { name: 'Fernhill', url: 'fernhill.example' };
 
 const round = (value, digits) => {
   const f = 10 ** digits;
@@ -227,7 +270,14 @@ export const buildDemoState = (now = new Date()) => {
     confidence: prediction.confidence,
     recommendation: prediction.recommendation,
     updated_at: syncedAt.toISOString(),
-    thumbnail_url: `https://picsum.photos/seed/cre${spec.id}/100/100`,
+    // What the ad looks like (see components/CreativePreview.js). Demo creatives are drawn
+    // in the app, so there is no thumbnail_url to fetch.
+    brand: BRAND.name,
+    display_url: BRAND.url,
+    creative_type: spec.creative.format === 'display' ? 'image' : spec.creative.format,
+    ...spec.creative,
+    launched_at: dayFromToday(-(spec.days - 1)).toISOString(),
+    days_live: spec.days,
   });
 
   const rows = creatives.map(listRow);
