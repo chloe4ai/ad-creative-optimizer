@@ -139,7 +139,8 @@ export function EvidenceCharts({ series, prediction, diagnosis, platform }) {
     { key: 'roas', scale: 1, tick: (v, d) => `${v.toFixed(d)}x` },
   ].map(({ key, scale, tick }) => {
     const sig = signals[key];
-    const sub = `${sig.consecutiveDaysBelow} of ${run} ${run === 1 ? 'day' : 'days'} below threshold${sig.crossedDate && sig.consecutiveDaysBelow > 0 ? `, since ${labels[sig.crossedIndex]}` : ''}`;
+    const below = sig.consecutiveDaysBelow;
+    const sub = `${below} ${below === 1 ? 'day' : 'days in a row'} below threshold (${run} needed)${sig.crossedDate && below > 0 ? `, since ${labels[sig.crossedIndex]}` : ''}${sig.state !== 'past' && below >= run ? '; average not past it yet' : ''}`;
     return {
       key,
       title: sig.label,

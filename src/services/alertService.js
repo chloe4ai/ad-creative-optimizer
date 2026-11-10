@@ -37,6 +37,8 @@ export class AlertService {
       fatigued: 'fatigue_detected',
     };
 
+    const diagnosis = this.predictor.diagnose(prediction, currentMetrics);
+
     return {
       id: `alert_${creative.id}_${Date.now()}`,
       creativeId: creative.id,
@@ -46,7 +48,9 @@ export class AlertService {
       severity: severityMap[prediction.status],
       prediction,
       currentMetrics: currentMetrics[currentMetrics.length - 1],
-      message: this.generateMessage(creative, prediction),
+      pattern_label: diagnosis.pattern.label,
+      is_creative_problem: diagnosis.pattern.isCreativeProblem,
+      message: this.generateMessage(creative, prediction, diagnosis),
       createdAt: new Date().toISOString(),
     };
   }
@@ -60,17 +64,22 @@ export class AlertService {
     return prediction.status === 'unknown' ? 'Unknown' : 'stable';
   }
 
-  generateMessage(creative, prediction) {
-    const days = Number.isFinite(prediction.daysRemaining)
-      ? `about ${prediction.daysRemaining} days`
-      : 'stable (no decline to extrapolate)';
+  generateMessage(creative, prediction, diagnosis = null) {
+    // The verdict and the CTR half-life projection are separate statements; say both.
+    const projection = Number.isFinite(prediction.daysRemaining)
+      ? `CTR is projected to reach half its own baseline in about ${prediction.daysRemaining} days`
+      : 'CTR is stable (no decline to extrapolate)';
     const messages = {
-      unknown: `${creative.name}: not enough data to predict fatigue yet`,
-      healthy: `${creative.name} is performing well. Estimated remaining life: ${days}`,
-      warning: `${creative.name} is showing signs of fatigue; prepare a replacement creative. Estimated remaining life: ${days}`,
-      fatigued: `${creative.name} is fatigued; pause or replace it now`,
+      unknown: `${creative.name}: not enough data to judge yet`,
+      healthy: `${creative.name} is healthy. ${projection}.`,
+      warning: `${creative.name}: warning. One metric is past its threshold or close to it. ${projection}.`,
+      fatigued: `${creative.name}: fatigued by the rule (two or more metrics past threshold, or frequency over the cap).`,
     };
-    return messages[prediction.status];
+    const verdict = messages[prediction.status];
+    // Why, and what to do about it, from the diagnosis (which may say it is not the creative).
+    return diagnosis && diagnosis.pattern && prediction.status !== 'unknown' && prediction.status !== 'healthy'
+      ? `${verdict} ${diagnosis.pattern.label}: ${diagnosis.pattern.cause} ${diagnosis.pattern.action}`
+      : verdict;
   }
 
   async sendAlert(alert) {
@@ -101,7 +110,7 @@ export class AlertService {
             { type: 'mrkdwn', text: `*Platform:*\n${alert.platform}` },
             { type: 'mrkdwn', text: `*Creative:*\n${alert.creativeName}` },
             { type: 'mrkdwn', text: `*Severity:*\n${alert.severity}` },
-            { type: 'mrkdwn', text: `*Days Remaining:*\n${this.formatDaysRemaining(alert.prediction)}` },
+            { type: 'mrkdwn', text: `*Days to CTR half-life:*\n${this.formatDaysRemaining(alert.prediction)}` },
           ],
         },
         { type: 'section', text: { type: 'mrkdwn', text: alert.message } },

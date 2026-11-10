@@ -141,7 +141,7 @@ test('frequency over the cap with flat metrics -> saturation_leading, lead frequ
   assert.equal(prediction.status, 'fatigued');
   assert.equal(prediction.daysRemaining, null, 'fatigued verdict without a CTR half-life');
   assert.equal(d.pattern.code, 'saturation_leading');
-  assert.equal(d.pattern.isCreativeProblem, true);
+  assert.equal(d.pattern.isCreativeProblem, null, 'frequency alone cannot say whether the creative is the problem');
   assert.equal(d.lead, 'frequency');
   assert.deepEqual(d.failing, []);
   assert.equal(d.definition.metricsPast, 0);
@@ -288,31 +288,43 @@ test('thresholdValue = baseline x (1 - threshold), in the metric\'s own units', 
   assert.deepEqual(d.definition.thresholds, expected);
 });
 
-test('evidence is strong for a large-sample drop and weak for a tiny-sample one', () => {
-  // Same -25% CTR drop. 100,000 impressions a day: 2,000 clicks -> 1,500.
-  const large = run(build({ ctr: step(0.02, 0.25), cpc: () => 0.5 })).d.signals.ctr;
-  assert.equal(large.state, 'past');
-  assert.equal(large.evidence.level, 'strong');
-  assert.ok(large.evidence.z < -3);
+// A zig-zag of +/- `amp` around the level: day-to-day noise with a known size.
+const noisy = (base, drop, amp, from = 7) => (i) => (i < from ? base : base * (1 - drop)) * (1 + (i % 2 ? amp : -amp));
 
-  // 200 impressions a day: 4 clicks -> 3. The rule still fires; the evidence says how thin it is.
-  const tiny = run(build({ impressions: 200, ctr: step(0.02, 0.25), cpc: () => 0.5 })).d.signals.ctr;
-  near(tiny.change, -0.25, 1e-9, 'tiny-sample CTR change');
-  assert.equal(tiny.state, 'past');
-  assert.equal(tiny.evidence.level, 'weak');
-  assert.ok(Math.abs(tiny.evidence.z) < 2);
+test('evidence compares the drop with the day-to-day spread: strong when clean, weak when noisy', () => {
+  // -25% CTR on a series that barely moves from day to day.
+  const clean = run(build({ ctr: noisy(0.02, 0.25, 0.01), cpc: () => 0.5 })).d.signals.ctr;
+  assert.equal(clean.evidence.level, 'strong');
+  assert.ok(clean.evidence.z < -3);
+
+  // A -10% average shift on a series that swings +/-40% a day is not distinguishable.
+  const loud = run(build({ ctr: noisy(0.02, 0.10, 0.4), cpc: () => 0.5 })).d.signals.ctr;
+  assert.equal(loud.evidence.level, 'weak');
+  assert.ok(Math.abs(loud.evidence.z) < 2);
+});
+
+test('a clean step has finite, capped evidence whichever side of the ratio moved', () => {
+  // ROAS -30% via order value, and ROAS down via CPM +40%: both are noiseless steps.
+  const viaAov = run(build({ aov: step(50, 0.3) })).d.signals.roas.evidence;
+  const viaCpm = run(build({ cpm: (i) => (i < 7 ? 10 : 14) })).d.signals.roas.evidence;
+  for (const e of [viaAov, viaCpm]) {
+    assert.equal(e.level, 'strong');
+    assert.ok(Number.isFinite(e.z) && Math.abs(e.z) <= 10);
+  }
+  // No change at all: z is 0, not unknown.
+  assert.equal(run(build()).d.signals.ctr.evidence.z, 0);
 });
 
 test('evidence does not gate the verdict (known limit, pinned)', () => {
-  // 200 impressions a day: CTR is "past" on 4 clicks a day becoming 3. The verdict is
-  // raised exactly as it would be on 100,000 impressions a day.
-  const tiny = run(build({ impressions: 200, ctr: step(0.02, 0.25), cpc: () => 0.5 }));
-  const large = run(build({ ctr: step(0.02, 0.25), cpc: () => 0.5 }));
-  assert.equal(tiny.d.signals.ctr.evidence.level, 'weak');
-  assert.equal(large.d.signals.ctr.evidence.level, 'strong');
-  assert.equal(tiny.prediction.status, 'warning');
-  assert.equal(tiny.prediction.status, large.prediction.status);
-  assert.equal(tiny.prediction.recommendation, 'rotate');
+  // CTR alternates between -60% and +10% of baseline in the recent window. The average
+  // is past threshold but the run of consecutive days is what stops the metric, not the
+  // evidence level: a weak-evidence drop that does persist still raises the verdict.
+  const rows = build({ ctr: (i) => (i < 7 ? 0.02 * (1 + (i % 2 ? 0.5 : -0.5)) : 0.02 * 0.78), cpc: () => 0.5 });
+  const { prediction, d } = run(rows);
+  assert.equal(d.signals.ctr.evidence.level, 'weak', 'baseline swings +/-50%, so a -22% shift is weak evidence');
+  assert.equal(d.signals.ctr.state, 'past');
+  assert.equal(prediction.status, 'warning');
+  assert.equal(prediction.recommendation, 'rotate');
 });
 
 // ---- Frequency ---------------------------------------------------------------
@@ -372,20 +384,32 @@ test('zero-impression days do not count toward the history', () => {
   assert.equal(d.pattern.code, 'healthy');
 });
 
-test('projection.engineDays is prediction.daysRemaining, with a range when CTR is declining', () => {
-  for (const drop of [0.1, 0.25, 0.4, 0.6]) {
+test('a step down that has stopped is not extrapolated', () => {
+  // CTR steps down on day 7 and then stays flat. The engine field still carries a date
+  // (window-to-window rate), but the diagnosis refuses to present it as a countdown.
+  for (const drop of [0.1, 0.25, 0.4]) {
     const { prediction, d } = run(build({ ctr: step(0.02, drop), cpc: () => 0.5 }));
     assert.ok(Number.isFinite(prediction.daysRemaining));
     assert.equal(d.projection.engineDays, prediction.daysRemaining, `drop ${drop}`);
     assert.equal(d.projection.basis, 'ctr_half_baseline');
     near(d.projection.level, d.signals.ctr.baseline * 0.5, 1e-12, 'half-baseline level');
-    assert.equal(d.projection.note, null);
-    assert.ok(d.projection.minDays <= d.projection.engineDays);
-    assert.ok(d.projection.maxDays >= d.projection.engineDays);
-    assert.ok(d.projection.minDays >= 0);
+    assert.equal(d.projection.declineStopped, true, `drop ${drop}`);
+    assert.equal(d.projection.alreadyBelow, false, `drop ${drop}: CTR is at ${1 - drop} of baseline`);
+    assert.equal(d.projection.trendDays, null);
+    assert.equal(d.projection.minDays, null);
+    assert.equal(d.projection.maxDays, null);
+    assert.match(d.projection.note, /no ongoing decline/);
   }
-  // Already below half its baseline: zero days, not a negative number.
-  assert.equal(run(build({ ctr: step(0.02, 0.6), cpc: () => 0.5 })).d.projection.engineDays, 0);
+});
+
+test('CTR already under half its baseline: zero days, flagged as already below', () => {
+  const { d } = run(build({ ctr: step(0.02, 0.6), cpc: () => 0.5 }));
+  assert.equal(d.projection.engineDays, 0);
+  assert.equal(d.projection.alreadyBelow, true);
+  assert.equal(d.projection.declineStopped, false);
+  assert.equal(d.projection.minDays, 0);
+  assert.equal(d.projection.maxDays, 0);
+  assert.equal(d.projection.note, null);
 });
 
 test('a CTR that is still falling day by day gives a trend estimate as well', () => {
@@ -396,6 +420,55 @@ test('a CTR that is still falling day by day gives a trend estimate as well', ()
   assert.ok(Number.isInteger(d.projection.trendDays));
   assert.equal(d.projection.minDays, Math.min(d.projection.engineDays, d.projection.trendDays));
   assert.equal(d.projection.maxDays, Math.max(d.projection.engineDays, d.projection.trendDays));
+  assert.ok(d.projection.minDays < d.projection.maxDays, 'a late-onset decline gives a real range');
+  assert.equal(d.projection.declineStopped, false);
+});
+
+// ---- The diagnosis never contradicts the verdict ------------------------------
+
+test('frequency over the cap is never diagnosed as "not a creative problem"', () => {
+  const hot = (i) => 5.5 + 0.1 * i;
+  const cases = {
+    'CVR drop': build({ cvr: step(0.05, 0.3), frequency: hot }),
+    'CPM rise': build({ cpm: (i) => (i < 7 ? 10 : 14), frequency: hot }),
+    'order value drop': build({ aov: step(50, 0.3), frequency: hot }),
+  };
+  for (const [name, rows] of Object.entries(cases)) {
+    const { prediction, d } = run(rows, 'meta');
+    assert.equal(prediction.status, 'fatigued', name);
+    assert.equal(d.pattern.code, 'saturation_compound', name);
+    assert.notEqual(d.pattern.isCreativeProblem, false, name);
+    assert.equal(d.lead, 'frequency', name);
+    assert.doesNotMatch(d.pattern.action, /Keep the creative|Do not replace/, name);
+    assert.match(d.pattern.cause, /Separately/, name);
+  }
+});
+
+test('CTR and CVR both down, only one past threshold -> full funnel, not "convert as before"', () => {
+  for (const [ctrDrop, cvrDrop] of [[0.1, 0.3], [0.3, 0.15]]) {
+    const { d } = run(build({ ctr: step(0.02, ctrDrop), cvr: step(0.05, cvrDrop) }), 'tiktok');
+    assert.equal(d.pattern.code, 'full_funnel_fatigue', `CTR -${ctrDrop}, CVR -${cvrDrop}`);
+    assert.doesNotMatch(d.pattern.cause, /as before/);
+  }
+});
+
+test('the action never says "no need to pause" on a fatigued verdict or while ROAS is slipping', () => {
+  // CPM-bought, CTR -30%: ROAS follows CTR down, so two metrics are past -> fatigued.
+  const { prediction, d } = run(build({ ctr: step(0.02, 0.3) }), 'tiktok');
+  assert.equal(prediction.status, 'fatigued');
+  assert.equal(prediction.recommendation, 'pause');
+  assert.equal(d.pattern.code, 'click_erosion');
+  assert.match(d.pattern.action, /^Pause/);
+  assert.doesNotMatch(d.pattern.action, /no need to pause/);
+  // Paid per click, ROAS holds: the reassurance is allowed.
+  const cpc = run(build({ ctr: step(0.02, 0.3), cpc: () => 0.5 }), 'google').d;
+  assert.match(cpc.pattern.action, /no need to pause early/);
+});
+
+test('a CTR change that rounds to flat on a healthy creative is healthy, not a drift', () => {
+  const { prediction, d } = run(build({ ctr: step(0.02, 0.004), cpc: () => 0.5 }));
+  assert.equal(prediction.status, 'healthy');
+  assert.equal(d.pattern.code, 'healthy');
 });
 
 test('projection has no days and says why when CTR is not declining', () => {

@@ -32,9 +32,12 @@ function CtrSparkline({ series, baseline, failing }) {
   const H = 30;
   const PAD = 3;
   const base = isNum(num(baseline)) ? num(baseline) : null;
-  const all = base === null ? values : [...values, base];
-  const lo = Math.min(...all);
-  const hi = Math.max(...all);
+  // One relative scale for every row (baseline -50% to +25%, widened only if the data
+  // goes beyond it), so the same height means the same relative change in each row and a
+  // flat creative looks flat.
+  const ref = base ?? values[0];
+  const lo = Math.min(ref * 0.5, ...values);
+  const hi = Math.max(ref * 1.25, ...values);
   const span = hi - lo || 1;
   const x = (i) => PAD + (i / (values.length - 1)) * (W - PAD * 2 - 2);
   const y = (v) => PAD + (1 - (v - lo) / span) * (H - PAD * 2);
@@ -254,7 +257,12 @@ export default function CreativeList({ onSelectCreative, onShowMethod }) {
             ) : rows.length === 0 ? (
               <tr>
                 <td colSpan={COLS} className="px-6 py-8 text-center text-gray-500">
-                  No creatives found. Add an ad account to get started.
+                  {filter.platform || filter.status ? (
+                    <>
+                      No creatives match these filters.{' '}
+                      <button type="button" className="text-blue-600 underline" onClick={() => setFilter({ platform: '', status: '' })}>Clear filters</button>
+                    </>
+                  ) : 'No creatives found. Add an ad account to get started.'}
                 </td>
               </tr>
             ) : (

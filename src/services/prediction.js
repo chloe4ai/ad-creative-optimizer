@@ -329,35 +329,34 @@ export class FatiguePredictor {
     const change = (curr, prev) => (curr === null || prev === null || prev === 0 ? null : (curr - prev) / prev);
 
     // --- how strong is the evidence that a metric moved (vs. day-to-day noise) ---
+    // Welch's t on the daily values of the two windows: the difference in means measured
+    // against the day-to-day spread actually observed. (A pooled binomial test would call
+    // almost any difference "significant" at ad volumes, because real daily rates vary far
+    // more than sampling error alone.)
     const evidenceLevel = (z) => {
       if (z === null || !Number.isFinite(z)) return 'unknown';
       const a = Math.abs(z);
       return a >= 3 ? 'strong' : a >= 2 ? 'moderate' : 'weak';
     };
-    // Two-proportion z-test on pooled counts (CTR = clicks/impressions, CVR = conversions/clicks).
-    const proportionZ = (x1, n1, x2, n2) => {
-      if (!(n1 > 0) || !(n2 > 0)) return null;
-      const p = (x1 + x2) / (n1 + n2);
-      const se = Math.sqrt(p * (1 - p) * (1 / n1 + 1 / n2));
-      return se > 0 ? (x2 / n2 - x1 / n1) / se : null;
-    };
-    // Welch t on daily values, for metrics that are not a simple proportion (ROAS).
     const welch = (a, b) => {
       if (a.length < 2 || b.length < 2) return null;
       const mean = (v) => v.reduce((x, y) => x + y, 0) / v.length;
       const variance = (v, mu) => v.reduce((x, y) => x + (y - mu) ** 2, 0) / (v.length - 1);
       const ma = mean(a); const mb = mean(b);
       const se = Math.sqrt(variance(a, ma) / a.length + variance(b, mb) / b.length);
-      return se > 0 ? (mb - ma) / se : null;
+      const scale = Math.max(Math.abs(ma), Math.abs(mb));
+      const diff = mb - ma;
+      if (se > 1e-9 * scale) return diff / se;
+      // No day-to-day variation on either side (zero, or floating-point residue):
+      // same level means no change; different levels are a clean step, capped.
+      if (Math.abs(diff) <= 1e-9 * scale) return 0;
+      return Math.sign(diff) * 10;
     };
-    const hasCounts = pb.impressions > 0 && pr.impressions > 0 && (pb.clicks > 0 || pr.clicks > 0);
+    const daily = (list, key) => list.map((row) => row[key] || 0);
     const zOf = {
-      ctr: hasCounts ? proportionZ(pb.clicks, pb.impressions, pr.clicks, pr.impressions)
-        : welch(base.map((r) => r.ctr || 0), recent.map((r) => r.ctr || 0)),
-      cvr: hasCounts && pb.clicks > 0 && pr.clicks > 0 && (pb.conversions > 0 || pr.conversions > 0)
-        ? proportionZ(pb.conversions, pb.clicks, pr.conversions, pr.clicks)
-        : welch(base.map((r) => r.cvr || 0), recent.map((r) => r.cvr || 0)),
-      roas: welch(base.map((r) => r.roas || 0), recent.map((r) => r.roas || 0)),
+      ctr: welch(daily(base, 'ctr'), daily(recent, 'ctr')),
+      cvr: welch(daily(base, 'cvr'), daily(recent, 'cvr')),
+      roas: welch(daily(base, 'roas'), daily(recent, 'roas')),
     };
 
     // Daily compounding rate from a least-squares line through ln(value) over the recent
@@ -446,8 +445,8 @@ export class FatiguePredictor {
     // Otherwise: the metric that has been below its threshold longest; failing that, the one
     // furthest along toward its threshold.
     let lead = null;
-    if (pattern.code === 'cost_pressure') lead = 'cpm';
-    else if (frequency.isHigh) lead = 'frequency';
+    if (frequency.isHigh) lead = 'frequency';
+    else if (pattern.code === 'cost_pressure') lead = 'cpm';
     else {
       const ranked = Object.values(signals)
         .filter((sig) => sig.state === 'past' || sig.state === 'bending')
@@ -463,13 +462,23 @@ export class FatiguePredictor {
     const ctrRate = signals.ctr.trendRatePerDay;
     const tail = rows.slice(-Math.min(3, window));
     const latestRatio = m.ctr.baseline > 0 ? (sum(tail, 'ctr') / tail.length) / m.ctr.baseline : null;
+    const declining = m.ctr.change < 0;
+    // Already there: the window average or the last few days sit at or under half of baseline.
+    const alreadyBelow = declining && ((1 + m.ctr.change) <= 0.5 || (latestRatio !== null && latestRatio <= 0.5));
+    // CTR dropped against baseline but is flat or rising inside the recent window: a step
+    // down that has stopped, not a decline in progress. Extrapolating it would be wrong.
+    const declineStopped = declining && !alreadyBelow && ctrRate !== null && ctrRate >= 0;
     let trendDays = null;
-    if (latestRatio !== null && ctrRate !== null && ctrRate < 0 && m.ctr.change < 0) {
-      trendDays = latestRatio <= 0.5 ? 0
-        : Math.min(t.maxHorizonDays, Math.max(0, Math.round(Math.log(0.5 / latestRatio) / Math.log(1 + ctrRate))));
+    if (declining && !declineStopped && latestRatio !== null && ctrRate !== null && ctrRate < 0) {
+      // The tail mean describes the middle of the tail, (tail.length - 1) / 2 days ago.
+      const fromTailMid = Math.log(0.5 / latestRatio) / Math.log(1 + ctrRate) - (tail.length - 1) / 2;
+      trendDays = alreadyBelow ? 0 : Math.min(t.maxHorizonDays, Math.max(0, Math.round(fromTailMid)));
     }
     const engineDays = Number.isFinite(prediction.daysRemaining) ? prediction.daysRemaining : null;
-    const bounds = [engineDays, trendDays].filter((d) => d !== null);
+    const bounds = declineStopped ? [] : [engineDays, trendDays].filter((d) => d !== null);
+    let note = null;
+    if (engineDays === null) note = 'CTR is flat or rising against its baseline, so there is no CTR decline to extrapolate.';
+    else if (declineStopped) note = 'CTR dropped against its baseline but has been flat or rising over the recent window, so there is no ongoing decline to extrapolate.';
     const projection = {
       basis: 'ctr_half_baseline',
       level: m.ctr.baseline * 0.5,
@@ -477,8 +486,11 @@ export class FatiguePredictor {
       trendDays,
       minDays: bounds.length ? Math.min(...bounds) : null,
       maxDays: bounds.length ? Math.max(...bounds) : null,
+      alreadyBelow,
+      declineStopped,
+      latestVsBaseline: latestRatio,
       // Why there is no date, when there is none.
-      note: engineDays === null ? 'CTR is flat or rising against its baseline, so there is no CTR decline to extrapolate.' : null,
+      note,
     };
 
     const failing = Object.values(signals).filter((sig) => sig.state === 'past').map((sig) => sig.key);
@@ -510,9 +522,28 @@ export class FatiguePredictor {
   /**
    * Name the pattern. First match wins. "bend" = the window average has moved more than
    * half a threshold; "past" = over the threshold for the required consecutive days.
-   * isCreativeProblem says whether replacing the creative is the fix at all.
+   * isCreativeProblem says whether replacing the creative is the fix: true, false, or
+   * null when the data cannot say yet.
    */
   classifyPattern(prediction, signals, frequency, cost) {
+    const base = this.classifyByMetrics(prediction, signals, frequency, cost);
+    // Frequency over the cap makes the verdict fatigued on its own. If the metrics point
+    // somewhere else (landing page, auction cost), both things are true: say both, rather
+    // than telling the reader to keep a creative the verdict says to pause.
+    if (frequency.isHigh && base.isCreativeProblem === false && prediction.status !== 'healthy') {
+      return {
+        code: 'saturation_compound',
+        label: `Audience saturated, and: ${base.label.charAt(0).toLowerCase()}${base.label.slice(1)}`,
+        isCreativeProblem: null,
+        cause: `Frequency averaged ${frequency.windowAvg.toFixed(1)} over the recent window against a cap of ${frequency.limit}, which on its own makes the verdict fatigued. Separately: ${base.cause}`,
+        action: `Bring frequency down first: widen or swap the audience, or rotate in a new creative. Then: ${base.action.replace(/^(Keep the creative\.|Do not replace the creative\.)\s*/, '')}`,
+        secondary: base.code,
+      };
+    }
+    return base;
+  }
+
+  classifyByMetrics(prediction, signals, frequency, cost) {
     const { ctr, cvr, roas } = signals;
     const bend = (sig) => sig.state === 'past' || sig.state === 'bending';
     // Signed whole percent; a change that rounds to zero prints as "flat", not "−0%".
@@ -521,9 +552,13 @@ export class FatiguePredictor {
       return whole === 0 ? 'flat' : `${whole > 0 ? '+' : '−'}${Math.abs(whole)}%`;
     };
     const cpmUp = cost.cpm.change !== null && cost.cpm.change >= this.thresholds.cpmRisePercent;
+    const fatigued = prediction.status === 'fatigued';
 
     if (prediction.status === 'healthy') {
-      return prediction.fatigueDate
+      // A date exists for any negative CTR change, however small. Only call it a drift when
+      // the change is visible (3 points or more) and not lost in day-to-day noise.
+      const drifting = prediction.fatigueDate && Math.round(ctr.change * 100) <= -3 && ctr.evidence.level !== 'weak';
+      return drifting
         ? {
           code: 'slow_drift',
           label: 'Healthy, drifting down slowly',
@@ -544,9 +579,9 @@ export class FatiguePredictor {
       return {
         code: 'saturation_leading',
         label: 'Audience saturated, metrics have not bent yet',
-        isCreativeProblem: true,
-        cause: `Frequency averaged ${frequency.windowAvg.toFixed(1)} over the recent window against a cap of ${frequency.limit}: the same people keep being shown this ad. Repeat exposure is the cause of fatigue and CTR, CVR and ROAS are the effect, so frequency crosses first.`,
-        action: 'Widen or swap the audience, or rotate in a new creative for this one, before CTR starts to fall.',
+        isCreativeProblem: null,
+        cause: `Frequency averaged ${frequency.windowAvg.toFixed(1)} over the recent window against a cap of ${frequency.limit}: the same people keep being shown this ad. CTR, CVR and ROAS have not responded yet. Frequency over the cap is an early warning that usually comes before a CTR drop, not proof that one has started.`,
+        action: 'Widen or swap the audience to bring frequency down, and have a replacement creative ready in case CTR starts to fall.',
       };
     }
 
@@ -570,23 +605,40 @@ export class FatiguePredictor {
       };
     }
 
-    if (ctr.state === 'past' && cvr.state === 'past') {
+    // CTR and CVR both down, at least one of them past its threshold.
+    if (bend(ctr) && bend(cvr) && (ctr.state === 'past' || cvr.state === 'past')) {
       return {
         code: 'full_funnel_fatigue',
         label: 'Burned out: fewer people click, and those who do buy less',
         isCreativeProblem: true,
-        cause: `CTR ${pct(ctr.change)} and CVR ${pct(cvr.change)} are both past threshold, and ROAS is ${pct(roas.change)}. The responsive part of the audience has been used up: the ad now reaches people who have already ignored it or who were never a good fit.`,
-        action: 'Pause it and replace it with a new concept, not a variation of this one.',
+        cause: `CTR ${pct(ctr.change)} and CVR ${pct(cvr.change)} are both down against the creative's own baseline, and ROAS is ${pct(roas.change)}. The responsive part of the audience has been used up: the ad now reaches people who have already ignored it or who were never a good fit.`,
+        action: fatigued
+          ? 'Pause it and replace it with a new concept, not a variation of this one.'
+          : 'Prepare a new concept, not a variation of this one, and pause this creative if a second metric crosses its threshold.',
       };
     }
 
-    if (bend(ctr) && frequency.reported && frequency.slopePerDay > 0 && (frequency.isHigh || frequency.latest >= this.thresholds.frequencyNearCapShare * frequency.limit)) {
+    // From here on CTR is bending and CVR is not.
+    const cvrNote = (() => {
+      if (cvr.change <= 0.05) return '';
+      return cvr.evidence.level === 'weak' || cvr.evidence.level === 'unknown'
+        ? ` CVR is ${pct(cvr.change)}, but that is within its day-to-day noise, so read it as holding.`
+        : ` CVR is ${pct(cvr.change)}, which fits the curious dropping out first and leaving the people who came to buy.`;
+    })();
+    const roasNote = roas.state === 'past'
+      ? ` ROAS is ${pct(roas.change)} and past its threshold too.`
+      : '';
+
+    if (bend(ctr) && frequency.reported && frequency.slopePerDay > 0
+      && (frequency.isHigh || frequency.latest >= this.thresholds.frequencyNearCapShare * frequency.limit)) {
       return {
         code: 'creative_wearout',
         label: 'Creative wear-out: same people, seeing it again',
         isCreativeProblem: true,
-        cause: `CTR is ${pct(ctr.change)} while frequency has climbed to ${frequency.latest.toFixed(1)} as of the latest day (cap ${frequency.limit}) and is still rising. Each repeat view is less likely to earn a click.${cvr.change > 0.05 ? ` CVR is ${pct(cvr.change)}: the curious have stopped clicking and the people who still click came to buy.` : ''}`,
-        action: 'Prepare a replacement with a new hook or visual for the same audience, or widen the audience to bring frequency down.',
+        cause: `CTR is ${pct(ctr.change)} while frequency has climbed to ${frequency.latest.toFixed(1)} as of the latest day (cap ${frequency.limit}) and is still rising. Each repeat view is less likely to earn a click.${cvrNote}${roasNote}`,
+        action: fatigued
+          ? 'Pause it. Replace it with a new hook or visual for the same audience, or widen the audience to bring frequency down.'
+          : 'Prepare a replacement with a new hook or visual for the same audience, or widen the audience to bring frequency down.',
       };
     }
 
@@ -595,8 +647,10 @@ export class FatiguePredictor {
         code: 'click_erosion',
         label: 'Click-through erosion',
         isCreativeProblem: true,
-        cause: `CTR is ${pct(ctr.change)} against its own baseline while CVR is ${pct(cvr.change)}: fewer people click, but the ones who do convert as before.${frequency.reported ? '' : ' This platform does not report frequency, so repeat exposure cannot be confirmed as the cause.'}`,
-        action: 'Prepare a replacement. If cost is paid per click and ROAS is holding, there is no need to pause early.',
+        cause: `CTR is ${pct(ctr.change)} against its own baseline while CVR is ${pct(cvr.change)}: fewer people click, and the ones who do convert about as before.${roasNote}${frequency.reported ? '' : ' This platform does not report frequency, so repeat exposure cannot be confirmed as the cause.'}`,
+        action: fatigued
+          ? 'Pause it and replace it.'
+          : `Prepare a replacement.${bend(roas) ? '' : ' ROAS is holding, so there is no need to pause early.'}`,
       };
     }
 

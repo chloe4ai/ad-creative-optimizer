@@ -2,7 +2,7 @@
 
 **Creative fatigue is a forecastable curve, not a postmortem.**
 
-Most rotation decisions get made after ROAS falls — which means the money is already spent. This service watches per-creative performance across Google, Meta and TikTok, models the decay while it is still shallow, and tells you which creatives are wearing out, which signal says so, and how long the click-through rate has left before it halves. Pinterest and LinkedIn are planned (caps modeled, adapter not built).
+Most rotation decisions get made after ROAS falls — which means the money is already spent. This service watches per-creative performance across Google, Meta and TikTok, models the decay while it is still shallow, and tells you which creatives are wearing out, which signal says so, and how long until its click-through rate falls to half of its own baseline. Pinterest and LinkedIn are planned (caps modeled, adapter not built).
 
 ▶ **[Live demo](https://ad-creative-optimizer.vercel.app)** — dashboard, creative list, alert center, and a page that states the rules. Click any creative and it answers the questions a media buyer asks, in order:
 
@@ -53,7 +53,7 @@ This is the whole rule, as implemented in `FatiguePredictor.predict()`. Nothing 
 
 **Input.** One row per day per creative. Days with zero impressions are dropped (a day with no delivery is not evidence about the creative), rows are sorted by date, and what is left is the history, *N* days. Fewer than 3 days: status `unknown`, no verdict.
 
-**Windows.** The recent window is the last *W* = min(7, ⌊*N* / 2⌋) days. The baseline is every day before it. So a 14-day creative compares its last 7 days with its first 7, a 10-day creative its last 5 with its first 5, and a 60-day creative its last 7 with the 53 before. Each side is the plain average of the daily values.
+**Windows.** The recent window is the last *W* = min(7, ⌊*N* / 2⌋) days. The baseline is every earlier day in the scored history, which the sync and the API cap at the most recent 30 days. So a 14-day creative compares its last 7 days with its first 7, a 10-day creative its last 5 with its first 5, and a creative live 30 days or longer its last 7 with the 23 before. Each side is the plain average of the daily values.
 
 **Per-metric test.** For each of CTR, CVR and ROAS, change = (recent average − baseline average) ÷ baseline average. A metric is **past its threshold** when both hold:
 
@@ -89,7 +89,7 @@ It returns:
 
 - `definition` — the rule as applied to this creative: window, baseline days, history days, required run, thresholds, frequency cap, how many metrics are past (of the 2 needed), whether frequency is over the cap.
 - `signals.ctr | cvr | roas` — baseline, current, change, the threshold as a level in the metric's own units (`thresholdValue` = baseline × (1 − threshold)), a `state`, the trailing run of days below the line, the day that run started (`crossedIndex`, `crossedDate`), the recent daily trend, and `evidence`. States: `past` (the per-metric test above), `bending` (down by more than half the threshold, including over it without the run), `improving` (up by more than half the threshold), `holding` (anything else).
-- `evidence` — how likely the move is to be more than day-to-day noise: a two-proportion z-test on pooled counts for CTR (clicks of impressions) and CVR (conversions of clicks), a Welch t on daily values for ROAS. |z| ≥ 3 is `strong`, ≥ 2 `moderate`, below that `weak`.
+- `evidence` — how likely the move is to be more than day-to-day noise: a Welch t-statistic on the daily values of the two windows, so the drop is measured against the day-to-day spread actually observed (a pooled binomial test would call almost anything significant at ad volumes). |z| ≥ 3 is `strong`, ≥ 2 `moderate`, below that `weak`.
 - `frequency` — whether the platform reported one at all, latest value, window average, slope, the first day over the cap, and days until the cap at the current slope.
 - `cost` — CPM, CPC, CPA, order value and spend per day, baseline against recent, from pooled sums. When rows carry no revenue it is reconstructed as ROAS × spend.
 - `lead` — the signal that moved first. `cpm` when the pattern is cost pressure; `frequency` when it is over the cap (repeat exposure is the cause, the triad is the effect); otherwise the bending metric with the longest run below its line, ties going to the one furthest past its own threshold.
@@ -102,11 +102,12 @@ Patterns are tested in this order and the first match wins (`classifyPattern()`)
 |---|---|---|---|
 | `insufficient_data` | Status is `unknown` | n/a | Wait for more delivery |
 | `healthy` | Status is `healthy` and there is no CTR half-life | No | None |
-| `slow_drift` | Status is `healthy` but CTR is below baseline, so a half-life exists | No | None; have the next concept queued |
-| `saturation_leading` | Frequency over the cap, and none of CTR, CVR, ROAS bending yet | Yes | Widen or swap the audience, or rotate a new creative in, before CTR falls |
+| `slow_drift` | Status is `healthy`, CTR is 3% or more below baseline and the gap is outside day-to-day noise | No | None; have the next concept queued |
+| `saturation_leading` | Frequency over the cap, and none of CTR, CVR, ROAS bending yet | Cannot tell yet | Widen or swap the audience; have a replacement ready in case CTR falls |
+| `saturation_compound` | Frequency over the cap, and the metrics match one of the "not the creative" rows | Cannot tell yet | Bring frequency down first, then follow that row's action |
 | `cost_pressure` | CTR and CVR not bending, ROAS bending, CPM up 15% or more | **No** | Leave the creative; review bids, budget, placements, account-wide CPM |
 | `post_click_problem` | CTR not bending, CVR bending | **No** | Keep the creative; check landing page, offer, stock, conversion tracking |
-| `full_funnel_fatigue` | CTR and CVR both past threshold | Yes | Pause and replace with a new concept, not a variation |
+| `full_funnel_fatigue` | CTR and CVR both bending, at least one past threshold | Yes | Pause and replace with a new concept, not a variation |
 | `creative_wearout` | CTR bending, frequency reported and rising over the recent window, and over the cap or at least 60% of it | Yes | Prepare a new hook or visual for the same audience, or widen the audience |
 | `click_erosion` | CTR bending, none of the above (frequency low, flat, or not reported) | Yes | Prepare a replacement; no need to pause early if paid per click and ROAS holds |
 | `efficiency_drop` | Nothing above matched: ROAS is down without CTR, CVR or a 15% CPM rise | No | Check order value and CPM before touching the creative |
@@ -148,7 +149,7 @@ Every `/api` route requires the shared secret in an `x-api-key` header (see [Sec
 | | |
 |---|---|
 | `GET /api/creatives` | List creatives — filter by `platform`, `status` |
-| `GET /api/creatives/:id` | Creative detail with full metric history |
+| `GET /api/creatives/:id` | Creative detail with up to 30 days of metric history |
 | `GET /api/creatives/alerts/list` | Active fatigue alerts |
 | `POST /api/creatives/sync` | Sync every connected account |
 | `GET /api/accounts` · `POST` · `DELETE` | Manage connected ad accounts |
@@ -196,7 +197,7 @@ The API is built to run as a private service behind one dashboard, and the contr
 - **The verdict still counts CVR.** The status rule is "two of three", and CVR and the ROAS it drags down are two. A sold-out size or a broken checkout can therefore read as Warning or Fatigued with a `pause` recommendation while the ad is doing its job. Only the diagnosis separates it (`post_click_problem`, `cost_pressure`, `isCreativeProblem: false`); the stored status, the recommendation and the alert trigger do not. Until the verdict is gated on the pattern, read the status as "this needs a human" and the diagnosis as "this is why."
 - **Evidence strength is reported, not enforced.** `diagnose()` says whether a drop is strong, moderate or weak evidence given the volume behind it, but a metric that crosses its threshold on a few dozen clicks raises the same verdict as one that crosses on thousands. `confidence` does not cover this either: it counts days, not impressions.
 - **The baseline can include the start of the decline.** Everything before the recent window is baseline, so a creative that began sliding before that window has a baseline that is already lower than its real peak, which understates the drop. It also means the windows are fixed positions in the history, not a detected change point.
-- **Frequency is only read from Meta, and the cap assumes a frequency the adapter does not yet supply.** The caps are meant as average impressions per person over the life of the ad, which is how the demo data is generated (cumulative since launch). The Meta adapter (`src/adapters/meta.js`) reads `frequency` off each row of a date-ranged insights report, but does not list it among the fields it requests, and a per-row value from such a report describes that row's date range, not the run since launch. So against a live account the frequency rule is either silent or comparing a short-period number with a lifetime cap. For the cap to mean what it says, the adapter needs to request a cumulative (since launch) or rolling 7-day frequency and the cap needs to be stated for that same period. Platforms that report nothing fall back to the metric triad alone.
+- **Frequency is only read from Meta, and the cap assumes a frequency the adapter does not yet supply.** The caps are meant as average impressions per person over the life of the ad, which is how the demo data is generated (cumulative since launch). The Meta adapter (`src/adapters/meta.js`) requests `frequency` and reads it off each row of a date-ranged insights report, but a per-row value from such a report describes that row's date range, not the run since launch. So against a live account the frequency rule compares a short-period number with a lifetime cap. For the cap to mean what it says, the adapter needs to request a cumulative (since launch) or rolling 7-day frequency and the cap needs to be stated for that same period. Platforms that report nothing fall back to the metric triad alone.
 - **The CTR half-life is a CTR statement.** It is not when ROAS breaks even or when the status changes, and the first-window-to-last-window rate behind it lags a decline that started late. `diagnose().projection` gives the range; the stored `days_remaining` is the single engine number.
 
 ## License

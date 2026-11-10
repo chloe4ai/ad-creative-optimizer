@@ -11,17 +11,17 @@
 const INK = '#0f172a';
 
 const ART = {
-  // 1 · Summer Sale Banner A — static sale banner
-  summerSale: {
+  // 1 · Gear Sale Banner A — static sale banner
+  gearSale: {
     ratio: [400, 400],
-    alt: 'Static banner: a sun over waves with the words Summer Sale, up to 50% off',
+    alt: 'Static banner: a sun over waves with the words Gear Sale, up to 50% off',
     draw: () => (
       <>
         <rect width="400" height="400" fill="#fde68a" />
         <circle cx="300" cy="110" r="62" fill="#fb923c" />
         <path d="M0 270 Q50 240 100 270 T200 270 T300 270 T400 270 V400 H0Z" fill="#38bdf8" />
         <path d="M0 310 Q50 285 100 310 T200 310 T300 310 T400 310 V400 H0Z" fill="#0ea5e9" />
-        <text x="32" y="120" fontSize="54" fontWeight="800" fill={INK}>SUMMER</text>
+        <text x="32" y="120" fontSize="54" fontWeight="800" fill={INK}>GEAR</text>
         <text x="32" y="176" fontSize="54" fontWeight="800" fill={INK}>SALE</text>
         <rect x="32" y="198" width="190" height="44" rx="22" fill={INK} />
         <text x="127" y="227" fontSize="20" fontWeight="700" fill="#fff" textAnchor="middle">UP TO 50% OFF</text>
@@ -93,7 +93,7 @@ const ART = {
       </>
     ),
   },
-  // 4 · Brand Awareness Video — vertical video, mountain scene
+  // 4 · Brand Story Video — vertical video, mountain scene
   brandVideo: {
     ratio: [360, 640],
     alt: 'Vertical video frame: a hiker on a ridge at sunrise, captioned Go further',
@@ -140,13 +140,13 @@ const ART = {
   // 7 · Flash Sale Countdown — countdown clock, "ends tonight"
   flashSale: {
     ratio: [400, 400],
-    alt: 'Static image: a countdown clock reading 4 days, 5 hours, 59 minutes under the words Flash Sale 40% off, ends Sunday',
+    alt: 'Static image: a countdown clock reading 4 days, 5 hours, 59 minutes under the words Flash Sale 40% off, ends soon',
     draw: () => (
       <>
         <rect width="400" height="400" fill="#111827" />
         <path d="M250 0 L150 190 H215 L170 400 L330 150 H255 L320 0Z" fill="#facc15" opacity="0.18" />
         <text x="200" y="78" fontSize="24" fontWeight="800" fill="#facc15" textAnchor="middle" letterSpacing="6">FLASH SALE</text>
-        <text x="200" y="168" fontSize="86" fontWeight="900" fill="#fff" textAnchor="middle">40% OFF</text>
+        <text x="200" y="168" fontSize="86" fontWeight="900" fill="#fff" textAnchor="middle" textLength="344" lengthAdjust="spacingAndGlyphs">40% OFF</text>
         {['04', '05', '59'].map((d, i) => (
           <g key={d} transform={`translate(${62 + i * 98} 206)`}>
             <rect width="80" height="84" rx="10" fill="#dc2626" />
@@ -159,7 +159,7 @@ const ART = {
           <text key={x} x={x} y="262" fontSize="40" fontWeight="800" fill="#fff" textAnchor="middle">:</text>
         ))}
         <rect x="100" y="334" width="200" height="42" rx="21" fill="#facc15" />
-        <text x="200" y="362" fontSize="20" fontWeight="800" fill="#111827" textAnchor="middle">ENDS SUNDAY</text>
+        <text x="200" y="362" fontSize="20" fontWeight="800" fill="#111827" textAnchor="middle">ENDS SOON</text>
       </>
     ),
   },
@@ -179,7 +179,7 @@ const ART = {
         <rect x="24" y="24" width="140" height="36" rx="18" fill={INK} />
         <text x="94" y="48" fontSize="16" fontWeight="700" fill="#fff" textAnchor="middle">BEST SELLER</text>
         <text x="376" y="50" fontSize="22" fill="#f59e0b" textAnchor="end">★★★★★</text>
-        <text x="200" y="382" fontSize="20" fontWeight="800" fill={INK} textAnchor="middle">Ridgeline 28L · $120</text>
+        
       </>
     ),
   },
@@ -236,15 +236,19 @@ const FORMAT_LABEL = {
   carousel: 'Carousel',
   text: 'Search text ad',
   display: 'Display banner',
+  shopping: 'Shopping ad',
 };
 
 function Art({ art, className, slice = false }) {
   const spec = ART[art];
   if (!spec) return null;
   const [w, h] = spec.ratio;
+  // Thumbnails of portrait art show a square window below the headline, so the crop does
+  // not slice through the lettering.
+  const viewBox = slice && h > w ? `0 ${spec.thumbY ?? 160} ${w} ${w}` : `0 0 ${w} ${h}`;
   return (
     <svg
-      viewBox={`0 0 ${w} ${h}`}
+      viewBox={viewBox}
       role="img"
       aria-label={spec.alt}
       preserveAspectRatio={slice ? 'xMidYMid slice' : 'xMidYMid meet'}
@@ -362,6 +366,29 @@ function DisplayFrame({ creative }) {
   );
 }
 
+// A product tile as it appears among shopping results: image, title, price, store, rating.
+function ShoppingFrame({ creative }) {
+  return (
+    <div className="mx-auto w-full max-w-[240px] rounded-xl border border-gray-200 bg-white overflow-hidden shadow-xs">
+      <div className="relative">
+        <Art art={creative.art} className="w-full block" />
+        <span className="absolute top-2 left-2 px-1.5 py-0.5 rounded-sm bg-white/90 text-[10px] font-semibold text-gray-600 border border-gray-200">Sponsored</span>
+      </div>
+      <div className="px-3 py-2 border-t border-gray-200">
+        <div className="text-sm text-blue-800 leading-snug">{creative.headline}</div>
+        {creative.price && <div className="text-base font-bold text-gray-900 mt-0.5">{creative.price}</div>}
+        <div className="text-xs text-gray-600">{creative.brand}</div>
+        {creative.rating && (
+          <div className="text-xs text-gray-600 mt-0.5">
+            <span className="text-amber-500" aria-hidden="true">★</span> {creative.rating}
+            {creative.reviews ? ` (${creative.reviews} reviews)` : ''}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // The ad as a viewer would meet it, in a generic placement frame.
 export default function CreativePreview({ creative }) {
   const hasArt = creative.art && ART[creative.art];
@@ -379,6 +406,7 @@ export default function CreativePreview({ creative }) {
     );
   } else if (creative.format === 'video') frame = <VideoFrame creative={creative} />;
   else if (creative.format === 'display') frame = <DisplayFrame creative={creative} />;
+  else if (creative.format === 'shopping') frame = <ShoppingFrame creative={creative} />;
   else frame = <FeedFrame creative={creative} />;
 
   return (

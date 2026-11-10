@@ -58,7 +58,8 @@ const EVIDENCE = {
   unknown: 'Too little data to tell a change from day-to-day noise.',
 };
 
-const percentOf = (fraction) => `${Math.round(fraction * 100)}%`;
+// One decimal only when needed: 0.15 -> 15%, 0.075 -> 7.5%.
+const percentOf = (fraction) => `${Number((fraction * 100).toFixed(1))}%`;
 const drop = (fraction) => `−${percentOf(fraction)}`;
 
 // One sentence on how the rule produced today's verdict.
@@ -76,9 +77,9 @@ function verdictSentence(prediction, diagnosis, platform) {
   }
   if (prediction.status === 'warning') {
     if (past.length === 1) {
-      return `Only ${past[0]} is past its threshold for ${run} running. One metric is a warning; ${definition.metricsNeeded} are needed for fatigued.`;
+      return `Only ${past[0]} meets both conditions: its ${definition.window}-day average is past the threshold, and each of the last ${run} was below it. One metric is a warning; ${definition.metricsNeeded} are needed for fatigued.`;
     }
-    return `No metric is past its threshold for ${run} running, but ${joinList(bending)} ${bending.length === 1 ? 'is' : 'are'} more than halfway there.`;
+    return `No metric meets both conditions for past threshold (average past it, and the last ${run} each below it), but ${joinList(bending)} ${bending.length === 1 ? 'is' : 'are'} more than halfway there.`;
   }
   return 'CTR, CVR and ROAS are all within half of their thresholds of this creative’s own baseline.';
 }
@@ -104,7 +105,7 @@ function moneyLines(cost) {
     const { baseline, current, change } = metric;
     if (change === null || baseline === null || current === null || Math.abs(change) < 0.1 || !(current > 0)) return;
     const bought = baseline / current - 1; // units per dollar, now vs before
-    lines.push(`Each ${unit} now costs ${money(current)}, ${change > 0 ? 'up' : 'down'} from ${money(baseline)}: the same budget buys ${percentOf(Math.abs(bought))} ${bought < 0 ? 'fewer' : 'more'} ${units}.`);
+    lines.push(`Each ${unit} now costs ${money(current)}, ${change > 0 ? 'up' : 'down'} from ${money(baseline)}: the same budget buys ${`${Math.round(Math.abs(bought) * 100)}%`} ${bought < 0 ? 'fewer' : 'more'} ${units}.`);
   };
   build(cost.cpc, 'click', 'clicks');
   build(cost.cpa, 'conversion', 'conversions');
@@ -164,7 +165,7 @@ function SpecList({ creative, diagnosis }) {
   );
 }
 
-function SignalItem({ sig, run, moved }) {
+function SignalItem({ sig, run, window, moved }) {
   const fmt = FORMATTERS[sig.key];
   const below = sig.consecutiveDaysBelow;
   return (
@@ -173,9 +174,12 @@ function SignalItem({ sig, run, moved }) {
       {': '}{fmt(sig.baseline)} to {fmt(sig.current)}{' '}
       <span className={`font-medium ${moved ? (sig.state === 'past' ? 'text-red-600' : 'text-yellow-700') : 'text-gray-900'}`}>({pct(sig.change)})</span>
       {`. Threshold ${drop(sig.threshold)}`}
-      {moved
-        ? `; below it ${pluralDays(below)} running (${run} needed)${below > 0 && shortDate(sig.crossedDate) ? `, since ${shortDate(sig.crossedDate)}` : ''}. `
-        : '. '}
+      {!moved && '. '}
+      {moved && sig.state === 'past'
+        && `; daily value below that line for ${pluralDays(below)} in a row (${run} needed)${shortDate(sig.crossedDate) ? `, since ${shortDate(sig.crossedDate)}` : ''}. `}
+      {moved && sig.state !== 'past' && (below > 0
+        ? `; daily value below that line for ${pluralDays(below)} in a row${shortDate(sig.crossedDate) ? ` (since ${shortDate(sig.crossedDate)})` : ''}, but the ${window}-day average is not past ${drop(sig.threshold)} yet, so it does not count as past. `
+        : `; not past: the ${window}-day average is short of it. `)}
       <span className="text-gray-500">{EVIDENCE[sig.evidence.level] || EVIDENCE.unknown}</span>
     </li>
   );
@@ -207,12 +211,12 @@ function Why({ prediction, diagnosis, platform }) {
     </li>
   ) : null;
   const movedItems = [
-    ...moved.map((s) => <SignalItem key={s.key} sig={s} run={definition.requiredRun} moved />),
+    ...moved.map((s) => <SignalItem key={s.key} sig={s} run={definition.requiredRun} window={definition.window} moved />),
     frequency.isHigh ? freqItem : null,
     cpmMoved ? cpmItem : null,
   ].filter(Boolean);
   const heldItems = [
-    ...held.map((s) => <SignalItem key={s.key} sig={s} run={definition.requiredRun} />),
+    ...held.map((s) => <SignalItem key={s.key} sig={s} run={definition.requiredRun} window={definition.window} />),
     frequency.reported && !frequency.isHigh ? freqItem : null,
     !cpmMoved ? cpmItem : null,
   ].filter(Boolean);
@@ -228,6 +232,9 @@ function Why({ prediction, diagnosis, platform }) {
         )}
         {pattern.isCreativeProblem === true && (
           <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">Creative problem</span>
+        )}
+        {pattern.isCreativeProblem === null && prediction.status !== 'unknown' && (
+          <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">Early warning, not yet a creative problem</span>
         )}
       </div>
       <p className="text-sm text-gray-700">{pattern.cause}</p>
@@ -275,14 +282,14 @@ function Projection({ creative, series, prediction, diagnosis, now }) {
   const hasFlight = flightEnd && !Number.isNaN(flightEnd.getTime());
   const dateIn = (days) => shortDate(daysFrom(now, days));
 
-  if (proj.engineDays === null) {
+  if (proj.engineDays === null || proj.declineStopped) {
     return (
       <section aria-labelledby="detail-projection">
         <SectionTitle>
           <span id="detail-projection">Projection: when CTR reaches half its own baseline</span>
         </SectionTitle>
         <p className="text-sm text-gray-700">
-          {proj.note} There is no CTR half-life date for this creative.
+          {proj.note}{proj.declineStopped && Number.isFinite(proj.latestVsBaseline) ? ` CTR is at ${Math.round(proj.latestVsBaseline * 100)}% of its baseline.` : ''} There is no CTR half-life date for this creative.
           {fatigued && ' That does not change the verdict: the creative is already fatigued by the rule, which does not depend on this date.'}
         </p>
       </section>
@@ -290,8 +297,10 @@ function Projection({ creative, series, prediction, diagnosis, now }) {
   }
 
   let when;
-  if (proj.maxDays === 0) {
+  if (proj.alreadyBelow) {
     when = `CTR is already at or below half its own baseline (${half}).`;
+  } else if (proj.maxDays === 0) {
+    when = `CTR is on course to reach half its own baseline (${half}) within a day.`;
   } else if (proj.trendDays === null || proj.trendDays === proj.engineDays) {
     when = `CTR reaches half its own baseline (${half}) in ${pluralDays(proj.engineDays)}, around ${dateIn(proj.engineDays)}, at the average rate since the baseline.`;
   } else {
@@ -373,7 +382,7 @@ function Definition({ series, prediction, diagnosis, platform }) {
                     <td className="hidden sm:table-cell px-2 sm:px-3 py-2">{fmt(sig.current)}</td>
                     <td className={`px-2 sm:px-3 py-2 font-medium ${sig.change < -sig.threshold ? 'text-red-600' : 'text-gray-900'}`}>{pct(sig.change)}</td>
                     <td className="px-2 sm:px-3 py-2">{drop(definition.thresholds[key])}</td>
-                    <td className="px-2 sm:px-3 py-2 whitespace-nowrap">{sig.consecutiveDaysBelow} of {definition.requiredRun}</td>
+                    <td className="px-2 sm:px-3 py-2 whitespace-nowrap">{sig.consecutiveDaysBelow} <span className="text-gray-500">({definition.requiredRun} needed)</span></td>
                     <td className="px-2 sm:px-3 py-2">{sig.state === 'past' ? yes : no}</td>
                   </tr>
                 );
@@ -448,7 +457,29 @@ export default function CreativeDetail({ creativeId, onClose }) {
   }, [creativeId]);
 
   useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e) => {
+      if (e.key === 'Escape') { onClose(); return; }
+      if (e.key !== 'Tab') return;
+      // Keep Tab inside the dialog: it is modal, so what is behind it must not take focus.
+      const root = dialogRef.current;
+      if (!root) return;
+      const items = Array.from(root.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'))
+        .filter((el) => el.offsetParent !== null);
+      if (items.length === 0) { e.preventDefault(); root.focus(); return; }
+      const first = items[0];
+      const last = items[items.length - 1];
+      const active = document.activeElement;
+      if (!root.contains(active) || active === root) {
+        e.preventDefault();
+        (e.shiftKey ? last : first).focus();
+      } else if (e.shiftKey && active === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
     window.addEventListener('keydown', onKey);
     const overflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';

@@ -47,7 +47,7 @@ const STATUS_EDGE = {
 // whatever classifyPattern() returns for a minimal input that satisfies each rule; only
 // the rule-in-words column is written here. Order is the engine's: first match wins.
 // ---------------------------------------------------------------------------
-const sig = (state, change = 0) => ({ state, change });
+const sig = (state, change = 0, level = 'strong') => ({ state, change, evidence: { z: null, level } });
 const HOLD = sig('holding');
 const noFrequency = { reported: false, isHigh: false, limit: T.frequencyLimit.meta, latest: null, windowAvg: null, slopePerDay: null };
 const flatCost = { cpm: { change: 0 } };
@@ -61,18 +61,23 @@ const classify = (status, signals, frequency = noFrequency, cost = flatCost, fat
 const PATTERN_RULES = [
   {
     code: 'healthy',
-    rule: 'The verdict is Healthy and CTR is flat or rising against its baseline.',
+    rule: 'The verdict is Healthy and CTR is flat, rising, or down by less than its day-to-day noise.',
     build: () => classify('healthy', {}),
   },
   {
     code: 'slow_drift',
-    rule: 'The verdict is Healthy, but average CTR is below its baseline, so a CTR half-life can be projected.',
+    rule: 'The verdict is Healthy, but average CTR is 3% or more below its baseline and the gap is larger than its day-to-day noise, so a CTR half-life can be projected.',
     build: () => classify('healthy', { ctr: sig('holding', -0.05) }, noFrequency, flatCost, new Date()),
   },
   {
     code: 'saturation_leading',
     rule: 'Frequency is over the platform cap while CTR, CVR and ROAS are all less than halfway to their thresholds.',
     build: () => classify('fatigued', {}, { ...noFrequency, reported: true, isHigh: true, windowAvg: T.frequencyLimit.meta + 1, latest: T.frequencyLimit.meta + 1, slopePerDay: 0.2 }),
+  },
+  {
+    code: 'saturation_compound',
+    rule: 'Frequency is over the platform cap and the metrics match one of the "look elsewhere" rules below (auction cost, post-click, or return down). Both are stated, frequency first.',
+    build: () => classify('fatigued', { cvr: sig('past', -0.22) }, { ...noFrequency, reported: true, isHigh: true, windowAvg: T.frequencyLimit.meta + 1, latest: T.frequencyLimit.meta + 1, slopePerDay: 0.2 }),
   },
   {
     code: 'cost_pressure',
@@ -86,17 +91,17 @@ const PATTERN_RULES = [
   },
   {
     code: 'full_funnel_fatigue',
-    rule: 'CTR and CVR are both past their thresholds for the required run of days.',
+    rule: 'CTR and CVR are both more than halfway to their thresholds, and at least one of them is past its threshold.',
     build: () => classify('fatigued', { ctr: sig('past', -0.3), cvr: sig('past', -0.25), roas: sig('past', -0.4) }),
   },
   {
     code: 'creative_wearout',
-    rule: 'CTR is more than halfway to its threshold, and frequency is reported, still rising, and either over the cap or at 60% of it or more.',
+    rule: 'CTR is more than halfway to its threshold while CVR is not, and frequency is reported, still rising, and either over the cap or at 60% of it or more.',
     build: () => classify('warning', { ctr: sig('past', -0.2) }, { ...noFrequency, reported: true, latest: T.frequencyLimit.meta * 0.8, windowAvg: T.frequencyLimit.meta * 0.7, slopePerDay: 0.2 }),
   },
   {
     code: 'click_erosion',
-    rule: 'CTR is more than halfway to its threshold and none of the rules above matched (for example the platform does not report frequency).',
+    rule: 'CTR is more than halfway to its threshold while CVR is not, and frequency does not explain it (for example the platform does not report frequency).',
     build: () => classify('warning', { ctr: sig('past', -0.2) }),
   },
   {
@@ -904,8 +909,8 @@ export default function HowItWorks({ onSelectCreative, isDemo = true }) {
             </p>
             <p>
               When a decline started late or is speeding up, the recent trend is steeper and its date is sooner. When
-              the decline is levelling off, it is later. The detail view shows both as a range rather than pretend to
-              one exact day.
+              the decline is levelling off, it is later. When the two differ, the detail view shows both as a range
+              rather than pretend to one exact day; when they round to the same day, it shows one.
             </p>
             {d && d.projection.engineDays !== null && d.projection.trendDays !== null && (
               <p className="rounded-lg bg-gray-50 p-3 text-gray-700">

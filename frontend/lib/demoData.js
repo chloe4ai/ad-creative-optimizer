@@ -48,12 +48,12 @@ const CREATIVE_SPECS = [
   {
     // Meta sale banner on a lookalike audience: clicks sliding as frequency climbs. CTR is
     // past threshold; ROAS follows it down but has not crossed yet. One metric = warning.
-    id: 1, name: 'Summer Sale Banner A', platform: 'meta', headline: 'Up to 50% off summer gear',
-    campaign_name: 'Summer Sale', objective: 'Sales', days: 14, impressions: 52000,
+    id: 1, name: 'Gear Sale Banner A', platform: 'meta', headline: 'Up to 50% off trail gear',
+    campaign_name: 'Gear Sale', objective: 'Sales', days: 14, impressions: 52000,
     buying: 'cpm', cpm: 9.5, ctr: 0.0142, cvr: 0.034, aov: 61,
     creative: {
-      format: 'image', art: 'summerSale', placement: 'Feed', cta: 'Shop now',
-      primary_text: 'Summer gear, up to half off. This week only.',
+      format: 'image', art: 'gearSale', placement: 'Feed', cta: 'Shop now',
+      primary_text: 'Trail gear, up to half off. While stocks last.',
       audience: 'Lookalike 1% of past purchasers, ~420k people',
     },
     shapes: { ctr: { start: 4, rate: 0.958 } },
@@ -88,9 +88,9 @@ const CREATIVE_SPECS = [
     shapes: { ctr: { start: 11, rate: 0.95 } },
   },
   {
-    // TikTok awareness video, still finding new viewers: CTR drifting up.
-    id: 4, name: 'Brand Awareness Video', platform: 'tiktok', headline: 'Go further',
-    campaign_name: 'Brand Q3', objective: 'Awareness', days: 28, impressions: 96000,
+    // TikTok prospecting video, still finding new viewers: CTR drifting up.
+    id: 4, name: 'Brand Story Video', platform: 'tiktok', headline: 'Go further',
+    campaign_name: 'Brand Video', objective: 'Sales', days: 28, impressions: 96000,
     buying: 'cpm', cpm: 5.2, ctr: 0.0087, cvr: 0.018, aov: 63,
     creative: {
       format: 'video', art: 'brandVideo', placement: 'In-feed video', cta: 'Learn more', video_seconds: 21,
@@ -103,7 +103,7 @@ const CREATIVE_SPECS = [
     // TikTok acquisition video that has burned through its audience: fewer click, and the
     // ones who click convert less. CTR, CVR and ROAS all past threshold.
     id: 5, name: 'New User Acquisition', platform: 'tiktok', headline: 'Join now',
-    campaign_name: 'UA Q2', objective: 'App installs', days: 21, impressions: 84000,
+    campaign_name: 'New Customers', objective: 'Sales', days: 21, impressions: 84000,
     buying: 'cpm', cpm: 6.8, ctr: 0.0121, cvr: 0.029, aov: 50,
     creative: {
       format: 'video', art: 'userAcquisition', placement: 'In-feed video', cta: 'Join now', video_seconds: 12,
@@ -114,13 +114,13 @@ const CREATIVE_SPECS = [
   },
   {
     // Google search text ad: steady, slightly improving as bidding learns.
-    id: 6, name: 'Spring Collection', platform: 'google', headline: 'Spring is here: new-season trail gear',
-    campaign_name: 'Spring Collection', objective: 'Sales', days: 21, impressions: 47000,
-    buying: 'cpc', cpc: 0.72, ctr: 0.0076, cvr: 0.038, aov: 72,
+    id: 6, name: 'Trail Gear Search Ad', platform: 'google', headline: 'New-season trail gear | Fernhill',
+    campaign_name: 'Search: Trail Gear', objective: 'Sales', days: 21, impressions: 6800,
+    buying: 'cpc', cpc: 0.72, ctr: 0.052, cvr: 0.038, aov: 72,
     creative: {
       format: 'text', placement: 'Search results', cta: null,
       primary_text: 'New-season jackets, packs and trail shoes. Free returns for 60 days.',
-      audience: 'Keywords: spring hiking gear, rain jacket, trail shoes',
+      audience: 'Keywords: hiking gear, rain jacket, trail shoes',
     },
     shapes: { ctr: { start: 4, rate: 1.003 } },
   },
@@ -128,12 +128,12 @@ const CREATIVE_SPECS = [
     // Meta countdown creative on a warm list, 10 days into a 14-day sale. Frequency climbs
     // fast, clicks fall fast; the people who still click came to buy, so CVR rises and
     // cushions ROAS. Only CTR is past threshold: a warning, with the steepest curve here.
-    id: 7, name: 'Flash Sale Countdown', platform: 'meta', headline: '40% off everything, ends Sunday',
+    id: 7, name: 'Flash Sale Countdown', platform: 'meta', headline: '40% off everything, ends soon',
     campaign_name: 'Flash Sale', objective: 'Sales', days: 10, flightDaysLeft: 4, impressions: 71000,
     buying: 'cpm', cpm: 10.5, ctr: 0.0168, cvr: 0.031, aov: 58,
     creative: {
       format: 'image', art: 'flashSale', placement: 'Feed', cta: 'Shop now',
-      primary_text: '40% off everything. The clock is running: sale ends Sunday.',
+      primary_text: '40% off everything. The clock is running.',
       audience: 'Email subscribers and past purchasers, ~200k people',
     },
     shapes: { ctr: { start: 2, rate: 0.915 }, cvr: { start: 2, rate: 1.04 } },
@@ -144,10 +144,10 @@ const CREATIVE_SPECS = [
     // the curve already has a date.
     id: 8, name: 'Product Showcase', platform: 'google', headline: 'Ridgeline 28L daypack',
     campaign_name: 'Always On', objective: 'Sales', days: 14, impressions: 55000,
-    buying: 'cpc', cpc: 0.68, ctr: 0.0081, cvr: 0.044, aov: 64,
+    buying: 'cpc', cpc: 0.68, ctr: 0.0081, cvr: 0.0235, aov: 120,
     creative: {
-      format: 'image', art: 'productShowcase', placement: 'Shopping results', cta: 'Shop now',
-      primary_text: 'Ridgeline 28L daypack. 4.8 stars from 2,100 reviews.',
+      format: 'shopping', art: 'productShowcase', placement: 'Shopping results', cta: null,
+      price: '$120.00', rating: '4.8', reviews: '2,100',
       audience: 'Shopping queries: daypack, hiking backpack',
     },
     shapes: { ctr: { start: 2, rate: 0.991 }, cvr: { start: 0, rate: 0.998 } },
@@ -248,7 +248,7 @@ export const pluralDays = (n) => `${n} ${n === 1 ? 'day' : 'days'}`;
 // The CTR half-life projection: when CTR reaches 50% of the creative's own baseline.
 // (The engine field is still called fatigueDate; it is separate from the verdict.)
 export const fatigueOutlook = (daysRemaining) => (daysRemaining === 0
-  ? 'CTR is already below half its baseline'
+  ? 'CTR projected to reach half its baseline within a day'
   : `CTR projected to fall to half its baseline in ${pluralDays(daysRemaining)}`);
 
 // Signed whole percent; a change that rounds to zero prints as 0%, not −0%.
@@ -303,7 +303,7 @@ export const buildDemoState = (now = new Date()) => {
     // in the app, so there is no thumbnail_url to fetch.
     brand: BRAND.name,
     display_url: BRAND.url,
-    creative_type: spec.creative.format === 'display' ? 'image' : spec.creative.format,
+    creative_type: ['display', 'shopping'].includes(spec.creative.format) ? 'image' : spec.creative.format,
     ...spec.creative,
     objective: spec.objective,
     buying_model: spec.buying,
