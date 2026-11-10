@@ -201,7 +201,7 @@ const ART = {
           ))}
         </g>
         <text x="28" y="64" fontSize="20" fontWeight="700" fill="#9a3412" letterSpacing="3">NEW</text>
-        <text x="28" y="112" fontSize="44" fontWeight="900" fill={INK}>THE SWITCHBACK</text>
+        <text x="28" y="108" fontSize="38" fontWeight="900" fill={INK} textLength="344" lengthAdjust="spacingAndGlyphs">THE SWITCHBACK</text>
         <text x="28" y="372" fontSize="20" fontWeight="700" fill="#fff">Grip for the wet days · $89</text>
       </>
     ),

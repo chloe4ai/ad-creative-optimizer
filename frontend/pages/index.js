@@ -4,6 +4,8 @@ import CreativeList from '../components/CreativeList';
 import AlertCenter from '../components/AlertCenter';
 import AccountSettings from '../components/AccountSettings';
 import CreativeDetail from '../components/CreativeDetail';
+import HowItWorks from '../components/HowItWorks';
+import { LayoutDashboard, Image as ImageIcon, Bell, BookOpen, Link2 } from 'lucide-react';
 import { fetchAPI, API_CONFIGURED } from '../lib/api';
 
 export default function Home() {
@@ -15,6 +17,12 @@ export default function Home() {
   // Creative whose decay curve is open in the detail panel.
   const [selectedId, setSelectedId] = useState(null);
   const closeDetail = useCallback(() => setSelectedId(null), []);
+  // Any component can send the reader to the "How it works" tab (closing the detail panel).
+  const showMethod = useCallback(() => {
+    setSelectedId(null);
+    setActiveTab('method');
+    if (typeof window !== 'undefined') window.scrollTo(0, 0);
+  }, []);
 
   useEffect(() => {
     fetchDashboard();
@@ -33,17 +41,26 @@ export default function Home() {
   };
 
   const tabs = [
-    { id: 'dashboard', label: 'Dashboard', icon: '📊' },
-    { id: 'creatives', label: 'Creatives', icon: '🎨' },
-    { id: 'alerts', label: 'Alerts', icon: '🔔' },
-    { id: 'accounts', label: 'Accounts', icon: '🔗' },
+    { id: 'dashboard', label: 'Dashboard', Icon: LayoutDashboard },
+    { id: 'creatives', label: 'Creatives', Icon: ImageIcon },
+    { id: 'alerts', label: 'Alerts', Icon: Bell },
+    { id: 'method', label: 'How it works', Icon: BookOpen },
+    { id: 'accounts', label: 'Accounts', Icon: Link2 },
   ];
 
   return (
     <div className="min-h-screen bg-gray-50">
       {isDemo && (
         <div role="status" className="bg-amber-100 border-b border-amber-300 text-amber-900 text-sm text-center px-4 py-2">
-          <strong>Demo mode:</strong> generated sample histories, scored by the real prediction engine; backend not hosted. Click a creative to see its decay curve.
+          <strong>Demo mode:</strong> sample ads for a fictional brand, scored in your browser by the real prediction engine (the backend is not hosted).
+          Click a creative to see the ad, which signal is slipping, why, and{' '}
+          <button
+            type="button"
+            onClick={showMethod}
+            className="underline underline-offset-2 font-medium hover:text-amber-950 rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-700"
+          >
+            how fatigue is defined
+          </button>.
         </div>
       )}
 
@@ -70,20 +87,22 @@ export default function Home() {
       </header>
 
       {/* Navigation */}
-      <nav className="bg-white border-b">
+      <nav aria-label="Sections" className="bg-white border-b">
         <div className="max-w-7xl mx-auto px-4">
           <div className="flex gap-1 overflow-x-auto">
             {tabs.map((tab) => (
               <button
                 key={tab.id}
+                type="button"
                 onClick={() => setActiveTab(tab.id)}
-                className={`shrink-0 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                aria-current={activeTab === tab.id ? 'page' : undefined}
+                className={`shrink-0 inline-flex items-center gap-2 px-3 sm:px-4 py-3 text-sm font-medium border-b-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 ${
                   activeTab === tab.id
                     ? 'border-blue-600 text-blue-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700'
                 }`}
               >
-                <span className="mr-2">{tab.icon}</span>
+                <tab.Icon className="h-4 w-4" aria-hidden="true" />
                 {tab.label}
               </button>
             ))}
@@ -99,15 +118,16 @@ export default function Home() {
           </div>
         ) : (
           <>
-            {activeTab === 'dashboard' && <Dashboard stats={stats} onSelectCreative={setSelectedId} />}
-            {activeTab === 'creatives' && <CreativeList onSelectCreative={setSelectedId} />}
-            {activeTab === 'alerts' && <AlertCenter onSelectCreative={setSelectedId} />}
+            {activeTab === 'dashboard' && <Dashboard stats={stats} onSelectCreative={setSelectedId} onShowMethod={showMethod} setActiveTab={setActiveTab} />}
+            {activeTab === 'creatives' && <CreativeList onSelectCreative={setSelectedId} onShowMethod={showMethod} setActiveTab={setActiveTab} />}
+            {activeTab === 'alerts' && <AlertCenter onSelectCreative={setSelectedId} onShowMethod={showMethod} setActiveTab={setActiveTab} />}
+            {activeTab === 'method' && <HowItWorks onSelectCreative={setSelectedId} isDemo={isDemo} />}
             {activeTab === 'accounts' && <AccountSettings />}
           </>
         )}
       </main>
 
-      {selectedId !== null && <CreativeDetail creativeId={selectedId} onClose={closeDetail} />}
+      {selectedId !== null && <CreativeDetail creativeId={selectedId} onClose={closeDetail} onShowMethod={showMethod} />}
     </div>
   );
 }

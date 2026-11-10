@@ -4,7 +4,6 @@
 // (seeded, so every render and every visitor sees the same numbers; only the calendar
 // dates move with today), and the real engine in src/services/prediction.js scores it.
 // Every count, alert, and "days left" on the dashboard is derived from those predictions.
-import { formatDistanceToNow } from 'date-fns';
 import { FatiguePredictor } from '../../src/services/prediction.js';
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -234,9 +233,20 @@ const generateHistory = (spec) => {
   return rows;
 };
 
+// "about 2 hours ago" without a date library, so this module (and its tests) only depend
+// on the engine.
+const agoLabel = (ms) => {
+  const minutes = Math.round(ms / MINUTE_MS);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'} ago`;
+  const hours = Math.round(minutes / 60);
+  return `about ${hours} ${hours === 1 ? 'hour' : 'hours'} ago`;
+};
+
 export const pluralDays = (n) => `${n} ${n === 1 ? 'day' : 'days'}`;
 
-// The engine's fatigue date is when CTR reaches 50% of the creative's own baseline.
+// The CTR half-life projection: when CTR reaches 50% of the creative's own baseline.
+// (The engine field is still called fatigueDate; it is separate from the verdict.)
 export const fatigueOutlook = (daysRemaining) => (daysRemaining === 0
   ? 'CTR is already below half its baseline'
   : `CTR projected to fall to half its baseline in ${pluralDays(daysRemaining)}`);
@@ -303,6 +313,7 @@ export const buildDemoState = (now = new Date()) => {
     // Diagnosis summary for list rows: which pattern, which signal led, how far each moved.
     pattern_code: diagnosis.pattern.code,
     pattern_label: diagnosis.pattern.label,
+    pattern_action: diagnosis.pattern.action,
     is_creative_problem: diagnosis.pattern.isCreativeProblem,
     lead_signal: diagnosis.lead,
     failing_metrics: diagnosis.failing,
@@ -403,7 +414,7 @@ export const buildDemoState = (now = new Date()) => {
       needsAction,
       dailySpend: round(rows.reduce((a, r) => a + r.spend_per_day, 0), 0),
       dailySpendAtRisk: round(needsAction.reduce((a, r) => a + r.spend_per_day, 0), 0),
-      lastSync: formatDistanceToNow(syncedAt, { addSuffix: true }),
+      lastSync: agoLabel(now.getTime() - syncedAt.getTime()),
     },
   };
 };

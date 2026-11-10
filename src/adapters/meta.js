@@ -59,6 +59,7 @@ export class MetaAdsAdapter extends BaseAdapter {
       'spend',
       'ctr',
       'cpc',
+      'frequency',
       'conversion_rate_rich_funnel',
       'actions',
     ];

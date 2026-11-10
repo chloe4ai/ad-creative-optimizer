@@ -16,6 +16,9 @@ export class FatiguePredictor {
       consecutiveDays: 3,         // 连续天数才触发
       maxHorizonDays: 90,         // 预测最远只看 90 天
       minDataDays: 3,             // 至少 3 天有曝光的数据才给预测
+      // diagnose() 用的两个分类阈值
+      cpmRisePercent: 0.15,       // CPM 上涨 15% 以上才算「竞价变贵」
+      frequencyNearCapShare: 0.6, // 频次达到上限的 60% 且仍在上升，算「重复曝光」证据
     };
   }
 
@@ -512,8 +515,12 @@ export class FatiguePredictor {
   classifyPattern(prediction, signals, frequency, cost) {
     const { ctr, cvr, roas } = signals;
     const bend = (sig) => sig.state === 'past' || sig.state === 'bending';
-    const pct = (v) => `${v > 0 ? '+' : '−'}${Math.abs(Math.round(v * 100))}%`;
-    const cpmUp = cost.cpm.change !== null && cost.cpm.change >= 0.15;
+    // Signed whole percent; a change that rounds to zero prints as "flat", not "−0%".
+    const pct = (v) => {
+      const whole = Math.round(v * 100);
+      return whole === 0 ? 'flat' : `${whole > 0 ? '+' : '−'}${Math.abs(whole)}%`;
+    };
+    const cpmUp = cost.cpm.change !== null && cost.cpm.change >= this.thresholds.cpmRisePercent;
 
     if (prediction.status === 'healthy') {
       return prediction.fatigueDate
@@ -538,7 +545,7 @@ export class FatiguePredictor {
         code: 'saturation_leading',
         label: 'Audience saturated, metrics have not bent yet',
         isCreativeProblem: true,
-        cause: `Frequency is ${frequency.windowAvg.toFixed(1)} against a cap of ${frequency.limit}: the same people keep being shown this ad. Repeat exposure is the cause of fatigue and CTR, CVR and ROAS are the effect, so frequency crosses first.`,
+        cause: `Frequency averaged ${frequency.windowAvg.toFixed(1)} over the recent window against a cap of ${frequency.limit}: the same people keep being shown this ad. Repeat exposure is the cause of fatigue and CTR, CVR and ROAS are the effect, so frequency crosses first.`,
         action: 'Widen or swap the audience, or rotate in a new creative for this one, before CTR starts to fall.',
       };
     }
@@ -566,19 +573,19 @@ export class FatiguePredictor {
     if (ctr.state === 'past' && cvr.state === 'past') {
       return {
         code: 'full_funnel_fatigue',
-        label: 'Burned out: fewer click, and those who click buy less',
+        label: 'Burned out: fewer people click, and those who do buy less',
         isCreativeProblem: true,
         cause: `CTR ${pct(ctr.change)} and CVR ${pct(cvr.change)} are both past threshold, and ROAS is ${pct(roas.change)}. The responsive part of the audience has been used up: the ad now reaches people who have already ignored it or who were never a good fit.`,
         action: 'Pause it and replace it with a new concept, not a variation of this one.',
       };
     }
 
-    if (bend(ctr) && frequency.reported && frequency.slopePerDay > 0 && (frequency.isHigh || frequency.latest >= 0.6 * frequency.limit)) {
+    if (bend(ctr) && frequency.reported && frequency.slopePerDay > 0 && (frequency.isHigh || frequency.latest >= this.thresholds.frequencyNearCapShare * frequency.limit)) {
       return {
         code: 'creative_wearout',
         label: 'Creative wear-out: same people, seeing it again',
         isCreativeProblem: true,
-        cause: `CTR is ${pct(ctr.change)} while frequency has climbed to ${frequency.latest.toFixed(1)} (cap ${frequency.limit}) and is still rising. Each repeat view is less likely to earn a click.${cvr.change > 0.05 ? ` CVR is ${pct(cvr.change)}: the curious have stopped clicking and the people who still click came to buy.` : ''}`,
+        cause: `CTR is ${pct(ctr.change)} while frequency has climbed to ${frequency.latest.toFixed(1)} as of the latest day (cap ${frequency.limit}) and is still rising. Each repeat view is less likely to earn a click.${cvr.change > 0.05 ? ` CVR is ${pct(cvr.change)}: the curious have stopped clicking and the people who still click came to buy.` : ''}`,
         action: 'Prepare a replacement with a new hook or visual for the same audience, or widen the audience to bring frequency down.',
       };
     }
