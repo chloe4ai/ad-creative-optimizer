@@ -1,147 +1,457 @@
-import { useEffect, useMemo, useState } from 'react';
-import { format } from 'date-fns';
-import {
-  ComposedChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ReferenceLine,
-  ReferenceArea,
-  ReferenceDot,
-  ResponsiveContainer,
-} from 'recharts';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { FatiguePredictor } from '../../src/services/prediction.js';
 import { fetchAPI } from '../lib/api';
-import { pct, pluralDays, joinList, fatigueOutlook } from '../lib/demoData';
+import { pct, pluralDays, joinList } from '../lib/demoData';
+import CreativePreview from './CreativePreview';
+import { EvidenceCharts, ProjectionChart } from './detail/SignalCharts';
+import {
+  FORMATTERS, money, platformName, dayOf, shortDate, daysFrom, calendarDaysUntil,
+} from './detail/format';
 
 const predictor = new FatiguePredictor();
 const { thresholds } = predictor;
 
-// Longest projection drawn; beyond this the chart would be mostly empty future.
-const MAX_PROJECTION_DAYS = 30;
+const TRIAD = ['ctr', 'cvr', 'roas'];
 
-const PLATFORM_LABEL = { google: 'Google', meta: 'Meta', tiktok: 'TikTok' };
+const STATUS_LABEL = { healthy: 'Healthy', warning: 'Warning', fatigued: 'Fatigued', unknown: 'Not enough data' };
 
-const COLORS = {
-  ctr: '#2563eb', // blue-600
-  baseline: '#6b7280', // gray-500
-  threshold: '#d97706', // amber-600
-  projection: '#dc2626', // red-600
-};
-
-const statusStyles = {
+const statusPill = {
   healthy: 'bg-green-100 text-green-800',
   warning: 'bg-yellow-100 text-yellow-800',
   fatigued: 'bg-red-100 text-red-800',
   unknown: 'bg-gray-100 text-gray-800',
 };
 
-const METRICS = [
-  { key: 'ctr', label: 'CTR', threshold: thresholds.ctrDropPercent, fmt: (v) => `${(v * 100).toFixed(2)}%` },
-  { key: 'cvr', label: 'CVR', threshold: thresholds.cvrDropPercent, fmt: (v) => `${(v * 100).toFixed(2)}%` },
-  { key: 'roas', label: 'ROAS', threshold: thresholds.roasDropPercent, fmt: (v) => `${v.toFixed(2)}x` },
-];
+const statusStrip = {
+  healthy: 'bg-green-50 border-green-200 text-green-900',
+  warning: 'bg-yellow-50 border-yellow-200 text-yellow-900',
+  fatigued: 'bg-red-50 border-red-200 text-red-900',
+  unknown: 'bg-gray-50 border-gray-200 text-gray-900',
+};
 
-// One sentence on why the engine reached its verdict, in the README's terms.
-function explainVerdict(prediction) {
-  const m = prediction.metricsChange;
-  const crossed = METRICS.filter((x) => m[x.key].isFatigued).map((x) => x.label);
-  // Average past threshold but not for enough consecutive days: persistence rule at work.
-  const notPersistent = METRICS.filter((x) => m[x.key].change < -x.threshold && !m[x.key].isFatigued);
-  const platform = PLATFORM_LABEL[prediction.platform] || prediction.platform;
+const STATE = {
+  past: { label: 'Past threshold', chip: 'border-red-200 bg-red-50', text: 'text-red-700' },
+  bending: { label: 'Bending', chip: 'border-yellow-200 bg-yellow-50', text: 'text-yellow-800' },
+  holding: { label: 'Holding', chip: 'border-gray-200 bg-white', text: 'text-gray-600' },
+  improving: { label: 'Improving', chip: 'border-green-200 bg-green-50', text: 'text-green-700' },
+  neutral: { label: '', chip: 'border-gray-200 bg-gray-50', text: 'text-gray-500' },
+};
+
+const FORMAT_LABEL = {
+  image: 'Static image',
+  video: 'Vertical video',
+  carousel: 'Carousel',
+  text: 'Search text ad',
+  display: 'Display banner',
+};
+
+const BUYING_LABEL = {
+  cpm: 'CPM (pays per impression)',
+  cpc: 'CPC (pays per click)',
+};
+
+// The z-score bands in diagnose(), in words.
+const EVIDENCE = {
+  strong: 'Strong evidence of a change: far outside day-to-day noise.',
+  moderate: 'Moderate evidence of a change: outside day-to-day noise, but not by much.',
+  weak: 'Weak evidence of a change: within day-to-day noise.',
+  unknown: 'Too little data to tell a change from day-to-day noise.',
+};
+
+// One decimal only when needed: 0.15 -> 15%, 0.075 -> 7.5%.
+const percentOf = (fraction) => `${Number((fraction * 100).toFixed(1))}%`;
+const drop = (fraction) => `−${percentOf(fraction)}`;
+
+// One sentence on how the rule produced today's verdict.
+function verdictSentence(prediction, diagnosis, platform) {
+  const { definition, signals, frequency } = diagnosis;
+  const past = TRIAD.filter((k) => signals[k].state === 'past').map((k) => signals[k].label);
+  const bending = TRIAD.filter((k) => signals[k].state === 'bending').map((k) => signals[k].label);
+  const run = pluralDays(definition.requiredRun);
 
   if (prediction.status === 'fatigued') {
-    if (crossed.length >= 2) {
-      return `${joinList(crossed)} have all crossed their thresholds for at least ${m.requiredRun} days running — two or more metrics agreeing is what makes it fatigue, not noise.`;
+    if (past.length >= definition.metricsNeeded) {
+      return `${joinList(past)} are past their thresholds for at least ${run} running. ${definition.metricsNeeded} or more metrics agreeing, with CTR among those slipping, is the rule for fatigued.${frequency.isHigh ? ` Frequency is also over the ${platformName(platform)} cap of ${frequency.limit}.` : ''}`;
     }
-    return `Frequency ${m.frequency.current.toFixed(1)} is over the ${platform} cap of ${m.frequency.limit}${crossed.length ? `, and only ${crossed[0]} crossed its threshold` : ' while CTR, CVR and ROAS are still within threshold'} — the audience is saturated, so frequency alone calls fatigue before the metrics bend.`;
+    return `Frequency ${frequency.windowAvg.toFixed(1)} is over the ${platformName(platform)} cap of ${frequency.limit}. That alone makes the verdict fatigued${past.length ? `; ${joinList(past)} is also past its threshold.` : ', even though CTR, CVR and ROAS are within their thresholds.'}`;
   }
   if (prediction.status === 'warning') {
-    if (crossed.length === 1) {
-      return `Only ${crossed[0]} crossed its threshold — one metric is not enough to call fatigue, so this is a warning to prepare a replacement.`;
+    if (past.length >= definition.metricsNeeded && definition.ctrInvolved === false) {
+      return `${joinList(past)} are past their thresholds, but CTR is not slipping. A worn-out creative loses the click first, so without CTR this is a warning to look past the ad, not fatigue.`;
     }
-    if (notPersistent.length) {
-      return `${joinList(notPersistent.map((x) => x.label))} averaged past threshold but not for ${m.requiredRun} consecutive days yet — a dip has to persist before it counts.`;
+    if (past.length === 1) {
+      return `Only ${past[0]} meets both conditions: its ${definition.window}-day average is past the threshold, and each of the last ${run} was below it. One metric is a warning; ${definition.metricsNeeded} are needed for fatigued.`;
     }
-    return 'No metric has crossed its threshold yet, but at least one is more than halfway there — an early warning.';
+    return `No metric meets both conditions for past threshold (average past it, and the last ${run} each below it), but ${joinList(bending)} ${bending.length === 1 ? 'is' : 'are'} more than halfway there.`;
   }
-  if (prediction.status === 'healthy') {
-    return prediction.fatigueDate
-      ? 'Every metric is within half of its threshold of its own baseline; CTR is drifting down slowly, so the curve already has a date, but nothing needs doing yet.'
-      : 'Every metric is within half of its threshold of its own baseline and CTR is flat or rising — no decline to extrapolate.';
-  }
-  return prediction.message || 'Not enough data to judge.';
+  return 'CTR, CVR and ROAS are all within half of their thresholds of this creative’s own baseline.';
 }
 
-function buildChart(series, prediction, now) {
-  const m = prediction.metricsChange;
-  const n = series.length;
-  const recentStart = n - prediction.window;
-  const baseline = m.ctr.baseline;
-  const label = (date) => format(date, 'MM/dd');
-
-  // Engine's decay: the window change spread over spanDays, compounding daily, i.e. an
-  // exponential through the baseline window's midpoint and the recent window's midpoint.
-  const hasDecay = Boolean(prediction.fatigueDate);
-  const dailyRetention = hasDecay ? Math.pow(1 + m.ctr.change, 1 / prediction.spanDays) : 1;
-  const baselineMid = (recentStart - 1) / 2;
-  const trendAt = (t) => baseline * Math.pow(dailyRetention, t - baselineMid);
-
-  const projectionDays = hasDecay ? Math.min(prediction.daysRemaining, MAX_PROJECTION_DAYS) : 0;
-
-  const rows = series.map((day, t) => ({
-    label: label(new Date(day.date ?? day.metric_date)),
-    ctr: day.ctr * 100,
-    trend: hasDecay && t >= baselineMid ? trendAt(t) * 100 : null,
-  }));
-  const today = rows[n - 1]?.label;
-  for (let k = 1; k <= projectionDays; k++) {
-    rows.push({
-      // Calendar days, not 24h steps: across a DST change 24h can land on the same date twice.
-      label: label(new Date(now.getFullYear(), now.getMonth(), now.getDate() + k, 12)),
-      ctr: null,
-      trend: trendAt(n - 1 + k) * 100,
-    });
+// The verdict rule with this creative's numbers filled in.
+function ruleEvaluated(prediction, diagnosis, platform) {
+  const { definition, signals, frequency } = diagnosis;
+  const parts = [`${definition.metricsPast} of ${TRIAD.length} metrics past threshold, ${definition.metricsNeeded} needed`];
+  if (definition.metricsPast >= definition.metricsNeeded) {
+    parts.push(definition.ctrInvolved ? `CTR is among those slipping (${pct(signals.ctr.change)})` : `CTR is not slipping (${pct(signals.ctr.change)}, needs a drop of ${percentOf(definition.ctrInvolvedLevel)} or more)`);
   }
+  parts.push(frequency.reported
+    ? `frequency ${frequency.windowAvg.toFixed(1)} ${frequency.isHigh ? 'over' : 'under'} the cap of ${frequency.limit}`
+    : `frequency not reported by ${platformName(platform)}`);
+  if (prediction.status === 'warning' && definition.metricsPast === 0) {
+    const bending = TRIAD.filter((k) => signals[k].state === 'bending').map((k) => signals[k].label);
+    if (bending.length) parts.push(`${joinList(bending)} more than halfway to ${bending.length === 1 ? 'its threshold' : 'their thresholds'}`);
+  }
+  return `${parts.join('; ')}, so: ${prediction.status}`;
+}
 
-  const fatiguePoint = hasDecay && prediction.daysRemaining <= MAX_PROJECTION_DAYS
-    ? { x: rows[rows.length - 1].label, y: rows[rows.length - 1].trend }
-    : null;
-
-  return {
-    rows,
-    today,
-    recentFrom: rows[recentStart]?.label,
-    baseline: baseline * 100,
-    threshold: baseline * (1 - thresholds.ctrDropPercent) * 100,
-    fatigueLine: baseline * 0.5 * 100,
-    fatiguePoint,
-    truncated: hasDecay && prediction.daysRemaining > MAX_PROJECTION_DAYS,
+// What a click or a conversion costs now, when that moved by 10% or more.
+function moneyLines(cost) {
+  const lines = [];
+  const build = (metric, unit, units) => {
+    const { baseline, current, change } = metric;
+    if (change === null || baseline === null || current === null || Math.abs(change) < 0.1 || !(current > 0)) return;
+    const bought = baseline / current - 1; // units per dollar, now vs before
+    lines.push(`Each ${unit} now costs ${money(current)}, ${change > 0 ? 'up' : 'down'} from ${money(baseline)}: the same budget buys ${`${Math.round(Math.abs(bought) * 100)}%`} ${bought < 0 ? 'fewer' : 'more'} ${units}.`);
   };
+  build(cost.cpc, 'click', 'clicks');
+  build(cost.cpa, 'conversion', 'conversions');
+  return lines;
 }
 
-function ChartTooltip({ active, payload, label }) {
-  if (!active || !payload?.length) return null;
-  const names = { ctr: 'Daily CTR', trend: 'Decay curve' };
+function SectionTitle({ children, sub }) {
   return (
-    <div className="bg-white border rounded-lg shadow-sm px-3 py-2 text-xs">
-      <div className="font-medium text-gray-900 mb-1">{label}</div>
-      {payload.filter((p) => p.value !== null && p.value !== undefined).map((p) => (
-        <div key={p.dataKey} className="flex items-center gap-2 text-gray-700">
-          <span className="inline-block w-2 h-2 rounded-full" style={{ background: p.color }} />
-          {names[p.dataKey]}: <span className="font-medium text-gray-900">{p.value.toFixed(2)}%</span>
+    <div className="mb-3">
+      <h3 className="text-base font-semibold text-gray-900">{children}</h3>
+      {sub && <p className="text-xs text-gray-500 mt-0.5">{sub}</p>}
+    </div>
+  );
+}
+
+function SignalChip({ label, value, state, stateLabel, isLead }) {
+  const s = STATE[state] || STATE.neutral;
+  return (
+    <div className={`rounded-lg border px-3 py-2 min-w-0 ${s.chip} ${isLead ? 'ring-2 ring-blue-500 ring-offset-1' : ''}`}>
+      <div className="flex items-center justify-between gap-1">
+        <span className="text-xs font-medium text-gray-600">{label}</span>
+        {isLead && <span className="text-[10px] font-semibold uppercase tracking-wide text-blue-700 whitespace-nowrap">Moved first</span>}
+      </div>
+      <div className="text-lg font-semibold text-gray-900 leading-tight mt-0.5">{value}</div>
+      <div className={`text-xs font-medium ${s.text}`}>{stateLabel || s.label}</div>
+    </div>
+  );
+}
+
+function SpecList({ creative, diagnosis }) {
+  const launched = shortDate(creative.launched_at);
+  const flightEnd = shortDate(creative.flight_end);
+  const spend = diagnosis?.cost?.spendPerDay?.current;
+  const buying = typeof creative.buying_model === 'string'
+    ? (BUYING_LABEL[creative.buying_model.toLowerCase()] || creative.buying_model)
+    : null;
+  const rows = [
+    ['Format', FORMAT_LABEL[creative.format] || FORMAT_LABEL[creative.creative_type] || creative.format || creative.creative_type],
+    ['Placement', creative.placement],
+    ['Objective', creative.objective],
+    ['Audience', creative.audience],
+    ['Buying model', buying],
+    ['Launched', launched && `${launched}${Number.isFinite(creative.days_live) ? `, ${pluralDays(creative.days_live)} live` : ''}`],
+    ['Flight ends', flightEnd],
+    ['Spend per day', typeof spend === 'number' && Number.isFinite(spend) ? `${money(spend)} (recent average)` : null],
+  ].filter(([, value]) => value !== null && value !== undefined && value !== '' && value !== false);
+  if (!rows.length) return null;
+  return (
+    <dl className="mt-4 text-sm divide-y divide-gray-100 border-t border-gray-100">
+      {rows.map(([term, value]) => (
+        <div key={term} className="py-2 grid grid-cols-[6.5rem_1fr] gap-2">
+          <dt className="text-gray-500">{term}</dt>
+          <dd className="text-gray-900 min-w-0 break-words">{value}</dd>
         </div>
       ))}
-    </div>
+    </dl>
+  );
+}
+
+function SignalItem({ sig, run, window, moved }) {
+  const fmt = FORMATTERS[sig.key];
+  const below = sig.consecutiveDaysBelow;
+  return (
+    <li>
+      <span className="font-medium text-gray-900">{sig.label}</span>
+      {': '}{fmt(sig.baseline)} to {fmt(sig.current)}{' '}
+      <span className={`font-medium ${moved ? (sig.state === 'past' ? 'text-red-600' : 'text-yellow-700') : 'text-gray-900'}`}>({pct(sig.change)})</span>
+      {`. Threshold ${drop(sig.threshold)}`}
+      {!moved && '. '}
+      {moved && sig.state === 'past'
+        && `; daily value below that line for ${pluralDays(below)} in a row (${run} needed)${shortDate(sig.crossedDate) ? `, since ${shortDate(sig.crossedDate)}` : ''}. `}
+      {moved && sig.state !== 'past' && (below > 0
+        ? `; daily value below that line for ${pluralDays(below)} in a row${shortDate(sig.crossedDate) ? ` (since ${shortDate(sig.crossedDate)})` : ''}, but the ${window}-day average is not past ${drop(sig.threshold)} yet, so it does not count as past. `
+        : `; not past: the ${window}-day average is short of it. `)}
+      <span className="text-gray-500">{EVIDENCE[sig.evidence.level] || EVIDENCE.unknown}</span>
+    </li>
+  );
+}
+
+function Why({ prediction, diagnosis, platform }) {
+  const { pattern, signals, frequency, cost, definition } = diagnosis;
+  const triad = TRIAD.map((k) => signals[k]);
+  const moved = triad.filter((s) => s.state === 'past' || s.state === 'bending');
+  const held = triad.filter((s) => s.state !== 'past' && s.state !== 'bending');
+  const cpmMoved = cost.cpm.change !== null && Math.abs(cost.cpm.change) >= 0.1;
+  const cpmItem = cost.cpm.change === null ? null : (
+    <li key="cpm">
+      <span className="font-medium text-gray-900">CPM</span> (cost per 1,000 impressions): {money(cost.cpm.baseline)} to {money(cost.cpm.current)}{' '}
+      <span className="font-medium text-gray-900">({pct(cost.cpm.change)})</span>.
+    </li>
+  );
+  const slope = frequency.reported && frequency.slopePerDay !== null && Math.abs(frequency.slopePerDay) >= 0.005
+    ? ` ${frequency.slopePerDay > 0 ? 'Rising' : 'Falling'} ${Math.abs(frequency.slopePerDay).toFixed(2)} per day${frequency.daysToCap !== null ? `, about ${pluralDays(frequency.daysToCap)} to the cap` : ''}.`
+    : '';
+  const freqItem = frequency.reported ? (
+    <li key="frequency">
+      <span className="font-medium text-gray-900">Frequency</span>: {frequency.windowAvg.toFixed(1)} average over the last {pluralDays(definition.window)}
+      {frequency.latest !== null && frequency.latest.toFixed(1) !== frequency.windowAvg.toFixed(1) ? ` (${frequency.latest.toFixed(1)} on the latest day)` : ''},{' '}
+      {frequency.isHigh
+        ? <span className="font-medium text-red-600">over the cap of {frequency.limit}</span>
+        : `under the cap of ${frequency.limit}`}
+      {frequency.firstOverIndex !== null && shortDate(frequency.firstOverDate) ? `. First over the cap on ${shortDate(frequency.firstOverDate)}` : ''}.{slope}
+    </li>
+  ) : null;
+  const movedItems = [
+    ...moved.map((s) => <SignalItem key={s.key} sig={s} run={definition.requiredRun} window={definition.window} moved />),
+    frequency.isHigh ? freqItem : null,
+    cpmMoved ? cpmItem : null,
+  ].filter(Boolean);
+  const heldItems = [
+    ...held.map((s) => <SignalItem key={s.key} sig={s} run={definition.requiredRun} window={definition.window} />),
+    frequency.reported && !frequency.isHigh ? freqItem : null,
+    !cpmMoved ? cpmItem : null,
+  ].filter(Boolean);
+  const lines = moneyLines(cost);
+
+  return (
+    <section aria-labelledby="detail-why">
+      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">Why</p>
+      <div className="flex flex-wrap items-center gap-2 mb-2">
+        <h3 id="detail-why" className="text-base font-semibold text-gray-900">{pattern.label}</h3>
+        {pattern.isCreativeProblem === false && prediction.status !== 'healthy' && (
+          <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-600 text-white">Not a creative problem</span>
+        )}
+        {pattern.isCreativeProblem === true && (
+          <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">Creative problem</span>
+        )}
+        {pattern.isCreativeProblem === null && prediction.status !== 'unknown' && (
+          <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">Early warning, not yet a creative problem</span>
+        )}
+      </div>
+      <p className="text-sm text-gray-700">{pattern.cause}</p>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+        <div>
+          <h4 className="text-sm font-medium text-gray-900 mb-1.5">What moved</h4>
+          {movedItems.length
+            ? <ul className="space-y-2 text-sm text-gray-700 list-disc pl-5">{movedItems}</ul>
+            : <p className="text-sm text-gray-500">Nothing has moved more than halfway to its threshold.</p>}
+        </div>
+        <div>
+          <h4 className="text-sm font-medium text-gray-900 mb-1.5">What held</h4>
+          {heldItems.length
+            ? <ul className="space-y-2 text-sm text-gray-700 list-disc pl-5">{heldItems}</ul>
+            : <p className="text-sm text-gray-500">Nothing: every signal has moved.</p>}
+          {!frequency.reported && (
+            <p className="text-sm text-gray-500 mt-2">
+              Frequency: not reported by {platformName(platform)}, so repeat exposure cannot be checked.
+            </p>
+          )}
+        </div>
+      </div>
+
+      {lines.length > 0 && (
+        <div className="mt-4 text-sm text-gray-700 border-l-2 border-gray-300 pl-3 space-y-1">
+          {lines.map((line) => <p key={line}>{line}</p>)}
+        </div>
+      )}
+
+      <div className="mt-4 rounded-lg bg-blue-50 border border-blue-100 px-4 py-3">
+        <h4 className="text-sm font-semibold text-blue-900">What to do</h4>
+        <p className="text-sm text-blue-900 mt-0.5">{pattern.action}</p>
+      </div>
+    </section>
+  );
+}
+
+function Projection({ creative, series, prediction, diagnosis, now }) {
+  const proj = diagnosis.projection;
+  const window = diagnosis.definition.window;
+  const half = FORMATTERS.ctr(proj.level);
+  const fatigued = prediction.status === 'fatigued';
+  const flightEnd = creative.flight_end ? new Date(creative.flight_end) : null;
+  const hasFlight = flightEnd && !Number.isNaN(flightEnd.getTime());
+  const dateIn = (days) => shortDate(daysFrom(now, days));
+
+  if (proj.engineDays === null || proj.declineStopped) {
+    return (
+      <section aria-labelledby="detail-projection">
+        <SectionTitle>
+          <span id="detail-projection">Projection: when CTR reaches half its own baseline</span>
+        </SectionTitle>
+        <p className="text-sm text-gray-700">
+          {proj.note}{proj.declineStopped && Number.isFinite(proj.latestVsBaseline) ? ` CTR is at ${Math.round(proj.latestVsBaseline * 100)}% of its baseline.` : ''} There is no CTR half-life date for this creative.
+          {fatigued && ' That does not change the verdict: the creative is already fatigued by the rule, which does not depend on this date.'}
+        </p>
+      </section>
+    );
+  }
+
+  let when;
+  if (proj.alreadyBelow) {
+    when = `CTR is already at or below half its own baseline (${half}).`;
+  } else if (proj.maxDays === 0) {
+    when = `CTR is on course to reach half its own baseline (${half}) within a day.`;
+  } else if (proj.trendDays === null || proj.trendDays === proj.engineDays) {
+    when = `CTR reaches half its own baseline (${half}) in ${pluralDays(proj.engineDays)}, around ${dateIn(proj.engineDays)}, at the average rate since the baseline.`;
+  } else {
+    when = `CTR reaches half its own baseline (${half}) in ${proj.minDays} to ${pluralDays(proj.maxDays)} (${dateIn(proj.minDays)} to ${dateIn(proj.maxDays)}): ${proj.engineDays} at the average rate since the baseline, ${proj.trendDays} at the last ${pluralDays(window)}' trend. The chart draws the first.`;
+  }
+
+  let flight = null;
+  if (hasFlight) {
+    const left = calendarDaysUntil(now, flightEnd);
+    const ends = `The flight ends ${shortDate(flightEnd)}${left > 0 ? ` (in ${pluralDays(left)})` : ''}`;
+    if (proj.maxDays < left) flight = `${ends}: CTR is projected to reach half its baseline before the flight is over.`;
+    else if (proj.minDays >= left) flight = `${ends}: the flight is over before CTR is projected to reach half its baseline.`;
+    else flight = `${ends}, inside that range: CTR may or may not reach half its baseline before the flight is over.`;
+  }
+
+  return (
+    <section aria-labelledby="detail-projection">
+      <SectionTitle sub={`Half of baseline is where the engine stops projecting (${percentOf(diagnosis.definition.fatigueLevel)} of the baseline CTR). It is a projection of CTR only, not the verdict.`}>
+        <span id="detail-projection">Projection: when CTR reaches half its own baseline</span>
+      </SectionTitle>
+      <ProjectionChart series={series} prediction={prediction} diagnosis={diagnosis} now={now} />
+      <div className="text-sm text-gray-700 mt-2 space-y-1">
+        <p>{when}</p>
+        {flight && <p>{flight}</p>}
+        {fatigued && <p className="font-medium text-red-700">This creative is already fatigued by the rule, regardless of this date.</p>}
+      </div>
+    </section>
+  );
+}
+
+function Definition({ series, prediction, diagnosis, platform }) {
+  const { definition, signals, frequency } = diagnosis;
+  const n = series.length;
+  const dateAt = (i) => {
+    const d = series[i] ? dayOf(series[i]) : null;
+    return d && !Number.isNaN(d.getTime()) ? shortDate(d) : null;
+  };
+  const range = (from, to) => (dateAt(from) && dateAt(to) ? ` (${dateAt(from)} to ${dateAt(to)})` : '');
+  const recentStart = n - definition.window;
+  const yes = <span className="text-red-600 font-semibold">Yes</span>;
+  const no = <span className="text-gray-600">No</span>;
+
+  return (
+    <section aria-labelledby="detail-definition">
+      <SectionTitle>
+        <span id="detail-definition">How fatigue is defined, applied to this creative</span>
+      </SectionTitle>
+      <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-4 text-sm text-gray-700">
+        <p>
+          Each metric is compared with this creative&apos;s own past, not with other ads:
+          the <span className="font-medium text-gray-900">last {pluralDays(definition.window)}</span>{range(recentStart, n - 1)} against
+          the <span className="font-medium text-gray-900">{pluralDays(definition.baselineDays)} before</span>{range(0, recentStart - 1)}, its baseline.
+          A metric is past its threshold when the recent average has dropped by more than the threshold and every one of
+          the last {pluralDays(definition.requiredRun)} was below it.
+          {definition.requiredRun < thresholds.consecutiveDays && ` (Normally ${pluralDays(thresholds.consecutiveDays)}; shortened because the history is short.)`}
+        </p>
+
+        <div className="overflow-x-auto border border-gray-200 rounded-lg bg-white">
+          <table className="w-full text-xs sm:text-sm">
+            <thead className="bg-gray-50">
+              <tr className="text-left text-xs font-medium text-gray-500">
+                <th scope="col" className="px-2 sm:px-3 py-2">Metric</th>
+                <th scope="col" className="hidden sm:table-cell px-2 sm:px-3 py-2">Baseline</th>
+                <th scope="col" className="hidden sm:table-cell px-2 sm:px-3 py-2 whitespace-nowrap">Last {definition.window}d</th>
+                <th scope="col" className="px-2 sm:px-3 py-2">Change</th>
+                <th scope="col" className="px-2 sm:px-3 py-2">Threshold</th>
+                <th scope="col" className="px-2 sm:px-3 py-2">Days below</th>
+                <th scope="col" className="px-2 sm:px-3 py-2">Past?</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {TRIAD.map((key) => {
+                const sig = signals[key];
+                const fmt = FORMATTERS[key];
+                return (
+                  <tr key={key}>
+                    <th scope="row" className="px-2 sm:px-3 py-2 font-medium text-left text-gray-900">{sig.label}</th>
+                    <td className="hidden sm:table-cell px-2 sm:px-3 py-2">{fmt(sig.baseline)}</td>
+                    <td className="hidden sm:table-cell px-2 sm:px-3 py-2">{fmt(sig.current)}</td>
+                    <td className={`px-2 sm:px-3 py-2 font-medium ${sig.change < -sig.threshold ? 'text-red-600' : 'text-gray-900'}`}>{pct(sig.change)}</td>
+                    <td className="px-2 sm:px-3 py-2">{drop(definition.thresholds[key])}</td>
+                    <td className="px-2 sm:px-3 py-2 whitespace-nowrap">{sig.consecutiveDaysBelow} <span className="text-gray-500">({definition.requiredRun} needed)</span></td>
+                    <td className="px-2 sm:px-3 py-2">{sig.state === 'past' ? yes : no}</td>
+                  </tr>
+                );
+              })}
+              <tr>
+                <th scope="row" className="px-2 sm:px-3 py-2 font-medium text-left text-gray-900">
+                  Frequency
+                  {!frequency.reported && <span className="block text-xs font-normal text-gray-500 whitespace-nowrap">Not reported</span>}
+                </th>
+                <td className="hidden sm:table-cell px-2 sm:px-3 py-2 text-gray-400">n/a</td>
+                <td className="hidden sm:table-cell px-2 sm:px-3 py-2 whitespace-nowrap">
+                  {frequency.reported ? `${frequency.windowAvg.toFixed(1)} avg` : <span className="text-gray-400">n/a</span>}
+                </td>
+                <td className="px-2 sm:px-3 py-2 whitespace-nowrap">
+                  {frequency.reported && <span className="sm:hidden font-medium text-gray-900">{frequency.windowAvg.toFixed(1)} avg</span>}
+                  <span className={`${frequency.reported ? 'hidden sm:inline ' : ''}text-gray-400`}>n/a</span>
+                </td>
+                <td className="px-2 sm:px-3 py-2 whitespace-nowrap">cap {definition.frequencyLimit}</td>
+                <td className="px-2 sm:px-3 py-2 text-gray-400">n/a</td>
+                <td className="px-2 sm:px-3 py-2">
+                  {!frequency.reported
+                    ? <span className="text-gray-400">n/a</span>
+                    : frequency.isHigh ? <span className="text-red-600 font-semibold whitespace-nowrap">Over<span className="hidden sm:inline"> cap</span></span> : no}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>
+          <span className="font-medium text-gray-900">The rule, evaluated: </span>
+          {ruleEvaluated(prediction, diagnosis, platform)}.
+        </p>
+
+        <ul className="space-y-1.5 list-disc pl-5">
+          <li>
+            <span className="font-medium text-gray-900">Fatigued</span>: {definition.metricsNeeded} or more of CTR, CVR and ROAS past
+            their thresholds ({TRIAD.map((k) => drop(definition.thresholds[k])).join(', ')}) with CTR itself down at
+            least {percentOf(definition.thresholds.ctr / 2)} (a worn-out creative loses the click first), or frequency over
+            the {platformName(platform)} cap of {definition.frequencyLimit}. Frequency is impressions per person since launch.
+          </li>
+          <li>
+            <span className="font-medium text-gray-900">Warning</span>: exactly one metric past its threshold, or any metric more
+            than halfway to it (CTR {drop(definition.thresholds.ctr / 2)}, CVR {drop(definition.thresholds.cvr / 2)}, ROAS {drop(definition.thresholds.roas / 2)}).
+            It means prepare, not pause.
+          </li>
+          <li>
+            <span className="font-medium text-gray-900">Healthy</span>: neither of the above.
+          </li>
+          <li>
+            <span className="font-medium text-gray-900">Confidence {percentOf(prediction.confidence)}</span>: reflects days of history
+            only ({pluralDays(definition.historyDays)} here). It does not measure how clear the decline is; the evidence levels above do that.
+          </li>
+        </ul>
+      </div>
+    </section>
   );
 }
 
 export default function CreativeDetail({ creativeId, onClose }) {
   const [creative, setCreative] = useState(null);
   const [error, setError] = useState(null);
+  const dialogRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -154,7 +464,29 @@ export default function CreativeDetail({ creativeId, onClose }) {
   }, [creativeId]);
 
   useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e) => {
+      if (e.key === 'Escape') { onClose(); return; }
+      if (e.key !== 'Tab') return;
+      // Keep Tab inside the dialog: it is modal, so what is behind it must not take focus.
+      const root = dialogRef.current;
+      if (!root) return;
+      const items = Array.from(root.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'))
+        .filter((el) => el.offsetParent !== null);
+      if (items.length === 0) { e.preventDefault(); root.focus(); return; }
+      const first = items[0];
+      const last = items[items.length - 1];
+      const active = document.activeElement;
+      if (!root.contains(active) || active === root) {
+        e.preventDefault();
+        (e.shiftKey ? last : first).focus();
+      } else if (e.shiftKey && active === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
     window.addEventListener('keydown', onKey);
     const overflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -164,225 +496,149 @@ export default function CreativeDetail({ creativeId, onClose }) {
     };
   }, [onClose]);
 
+  useEffect(() => {
+    const previous = document.activeElement;
+    dialogRef.current?.focus();
+    return () => { if (previous && typeof previous.focus === 'function') previous.focus(); };
+  }, []);
+
   // Score the history in the browser with the same engine the API runs, so the panel
   // explains exactly the numbers it shows (and works the same against a real backend).
   const analysis = useMemo(() => {
-    if (!creative?.dailyMetrics) return null;
+    if (!Array.isArray(creative?.dailyMetrics)) return null;
     const now = new Date();
+    // The API returns days newest first; normalizeMetrics sorts them oldest first.
     const series = predictor.normalizeMetrics(creative.dailyMetrics);
     const prediction = predictor.predict(creative.dailyMetrics, { platform: creative.platform, now });
-    if (prediction.status === 'unknown') return { series, prediction, chart: null };
-    return { series, prediction, chart: buildChart(series, prediction, now) };
+    const diagnosis = predictor.diagnose(prediction, creative.dailyMetrics);
+    return { now, series, prediction, diagnosis };
   }, [creative]);
 
   const p = analysis?.prediction;
-  const m = p?.metricsChange;
-  const chart = analysis?.chart;
+  const d = analysis?.diagnosis;
+  const scored = Boolean(p && d?.signals);
+  const platform = creative?.platform;
 
   return (
     <div className="fixed inset-0 z-50 flex items-stretch sm:items-center justify-center bg-gray-900/50 sm:p-4" onClick={onClose}>
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby="creative-detail-title"
-        className="bg-white w-full sm:max-w-3xl sm:rounded-xl shadow-xl overflow-y-auto max-h-full"
+        className="bg-white w-full sm:max-w-6xl sm:rounded-xl shadow-xl overflow-y-auto overflow-x-hidden max-h-full focus:outline-none"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
-        <div className="sticky top-0 bg-white border-b px-4 sm:px-6 py-4 flex items-start justify-between gap-4 z-10">
+        <div className="sticky top-0 bg-white border-b border-gray-200 px-4 sm:px-6 py-3 flex items-start justify-between gap-4 z-20">
           <div className="min-w-0">
             <h2 id="creative-detail-title" className="text-lg font-semibold truncate">
-              {creative?.name || 'Loading…'}
+              {creative?.name || (error ? 'Creative' : 'Loading...')}
             </h2>
             {creative && (
-              <div className="text-sm text-gray-500 flex flex-wrap items-center gap-2 mt-1">
-                <span>{PLATFORM_LABEL[creative.platform] || creative.platform}</span>
-                <span>•</span>
-                <span>{creative.campaign_name}</span>
+              <div className="text-sm text-gray-500 flex flex-wrap items-center gap-x-2 gap-y-1 mt-0.5">
+                <span>{platformName(platform)}</span>
+                {creative.campaign_name && <span aria-hidden="true">·</span>}
+                {creative.campaign_name && <span>{creative.campaign_name}</span>}
                 {p && (
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusStyles[p.status] || statusStyles.unknown}`}>
-                    {p.status}
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusPill[p.status] || statusPill.unknown}`}>
+                    {STATUS_LABEL[p.status] || p.status}
                   </span>
                 )}
               </div>
             )}
           </div>
           <button
+            type="button"
             onClick={onClose}
             aria-label="Close"
-            className="shrink-0 w-9 h-9 flex items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-900 text-xl leading-none"
+            className="shrink-0 w-9 h-9 flex items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-900 focus-visible:outline-2 focus-visible:outline-blue-600 text-xl leading-none"
           >
             ×
           </button>
         </div>
 
-        <div className="px-4 sm:px-6 py-5 space-y-6">
+        <div className="px-4 sm:px-6 py-5">
           {error && <p className="text-red-600 text-sm">Failed to load creative: {error}</p>}
           {!creative && !error && (
-            <div className="flex items-center justify-center h-64">
+            <div className="flex items-center justify-center h-64" role="status" aria-label="Loading creative">
               <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div>
             </div>
           )}
 
-          {p && (
-            <>
-              {/* Verdict */}
-              <div className={`rounded-lg border px-4 py-3 text-sm ${
-                p.status === 'fatigued' ? 'bg-red-50 border-red-200 text-red-900'
-                  : p.status === 'warning' ? 'bg-yellow-50 border-yellow-200 text-yellow-900'
-                    : 'bg-green-50 border-green-200 text-green-900'
-              }`}>
-                <div className="font-semibold mb-1">
-                  {p.status === 'fatigued' && 'Fatigued — pause or replace now'}
-                  {p.status === 'warning' && (Number.isFinite(p.daysRemaining)
-                    ? `Warning — ${fatigueOutlook(p.daysRemaining)}${p.daysRemaining > 0 ? ` (${format(p.fatigueDate, 'MMM d')})` : ''}`
-                    : 'Warning — prepare a replacement')}
-                  {p.status === 'healthy' && (Number.isFinite(p.daysRemaining)
-                    ? `Healthy — ${fatigueOutlook(p.daysRemaining)}`
-                    : 'Healthy — stable')}
-                  {p.status === 'unknown' && 'Not enough data'}
+          {creative && (
+            <div className="lg:grid lg:grid-cols-[300px_minmax(0,1fr)] lg:gap-8">
+              {/* What is the ad */}
+              <aside className="lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-9rem)] lg:overflow-y-auto mb-6 lg:mb-0" aria-label="The ad">
+                <div className="max-w-sm mx-auto lg:max-w-none">
+                  <CreativePreview creative={creative} />
+                  <SpecList creative={creative} diagnosis={d} />
                 </div>
-                <p>{explainVerdict(p)}</p>
-              </div>
+              </aside>
 
-              {/* Chart */}
-              {chart && (
-                <div>
-                  <h3 className="text-sm font-medium text-gray-900">Daily CTR vs. its own baseline</h3>
-                  <p className="text-xs text-gray-500 mb-3">
-                    Shaded: the last {p.window} days, compared with the {analysis.series.length - p.window} days before.
-                    {p.fatigueDate
-                      ? ' Red dashed: the exponential decay the engine fits, extended from today.'
-                      : ' CTR is not declining, so there is no decay to project.'}
-                  </p>
-                  <div className="h-64 sm:h-72 -ml-2 sm:ml-0">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <ComposedChart data={chart.rows} margin={{ top: 16, right: 12, bottom: 0, left: 0 }}>
-                        <CartesianGrid stroke="#f3f4f6" vertical={false} />
-                        <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#6b7280' }} tickLine={false} axisLine={{ stroke: '#e5e7eb' }} minTickGap={16} />
-                        <YAxis
-                          tick={{ fontSize: 11, fill: '#6b7280' }}
-                          tickLine={false}
-                          axisLine={false}
-                          width={44}
-                          domain={[0, 'auto']}
-                          tickFormatter={(v) => `${v.toFixed(1)}%`}
-                        />
-                        <Tooltip content={<ChartTooltip />} />
-                        <Legend
-                          verticalAlign="bottom"
-                          height={28}
-                          iconType="plainline"
-                          wrapperStyle={{ fontSize: 12 }}
-                          payload={[
-                            { value: 'Daily CTR', type: 'line', color: COLORS.ctr },
-                            { value: 'Baseline avg', type: 'plainline', color: COLORS.baseline, payload: { strokeDasharray: '0' } },
-                            { value: `−${thresholds.ctrDropPercent * 100}% threshold`, type: 'plainline', color: COLORS.threshold, payload: { strokeDasharray: '4 3' } },
-                            ...(p.fatigueDate ? [{ value: 'Decay curve', type: 'plainline', color: COLORS.projection, payload: { strokeDasharray: '6 4' } }] : []),
-                          ]}
-                        />
-                        {chart.recentFrom && (
-                          <ReferenceArea x1={chart.recentFrom} x2={chart.today} fill="#9ca3af" fillOpacity={0.12} ifOverflow="extendDomain" />
-                        )}
-                        <ReferenceLine y={chart.baseline} stroke={COLORS.baseline} strokeWidth={1.5} />
-                        <ReferenceLine y={chart.threshold} stroke={COLORS.threshold} strokeWidth={1.5} strokeDasharray="4 3" />
-                        <ReferenceLine y={chart.fatigueLine} stroke={COLORS.projection} strokeOpacity={0.5} strokeWidth={1} strokeDasharray="2 3" label={{ value: '50% of baseline', position: 'insideBottomLeft', fontSize: 10, fill: '#991b1b' }} />
-                        {chart.rows.length > analysis.series.length && (
-                          <ReferenceLine x={chart.today} stroke="#9ca3af" strokeDasharray="2 3" label={{ value: 'Today', position: 'top', fontSize: 11, fill: '#6b7280' }} />
-                        )}
-                        <Line type="monotone" dataKey="ctr" stroke={COLORS.ctr} strokeWidth={2} dot={false} activeDot={{ r: 4 }} connectNulls={false} isAnimationActive={false} />
-                        {p.fatigueDate && (
-                          <Line type="monotone" dataKey="trend" stroke={COLORS.projection} strokeWidth={2} strokeDasharray="6 4" dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />
-                        )}
-                        {chart.fatiguePoint && (
-                          <ReferenceDot
-                            x={chart.fatiguePoint.x}
-                            y={chart.fatiguePoint.y}
-                            r={5}
-                            fill={COLORS.projection}
-                            stroke="#fff"
-                            strokeWidth={2}
-                            label={{ value: 'Fatigue', position: 'left', fontSize: 11, fill: '#991b1b' }}
-                          />
-                        )}
-                      </ComposedChart>
-                    </ResponsiveContainer>
+              <div className="min-w-0 space-y-8">
+                {p && !scored && (
+                  <div className={`rounded-lg border px-4 py-3 text-sm ${statusStrip.unknown}`}>
+                    <div className="font-semibold mb-1">{d?.pattern?.label || STATUS_LABEL.unknown}</div>
+                    <p>{d?.pattern?.cause || p.message}</p>
+                    {d?.pattern?.action && <p className="mt-1">{d.pattern.action}</p>}
                   </div>
-                  {p.fatigueDate && (
-                    <p className="text-xs text-gray-500 mt-2">
-                      Fatigue date = when the fitted curve reaches 50% of the creative&apos;s own baseline
-                      {p.daysRemaining === 0
-                        ? ' — it already has, so the date is today.'
-                        : ` (${format(p.fatigueDate, 'MMM d')}, ${pluralDays(p.daysRemaining)} out${chart.truncated ? `; the chart shows the first ${MAX_PROJECTION_DAYS}` : ''}).`}
-                    </p>
-                  )}
-                </div>
-              )}
+                )}
 
-              {/* Rules table */}
-              {m && (
-                <div>
-                  <h3 className="text-sm font-medium text-gray-900 mb-2">The rules, applied</h3>
-                  <div className="overflow-x-auto border rounded-lg">
-                    <table className="w-full text-sm">
-                      <thead className="bg-gray-50">
-                        <tr className="text-left text-xs font-medium text-gray-500 uppercase">
-                          <th className="px-3 py-2">Metric</th>
-                          <th className="hidden sm:table-cell px-3 py-2">Baseline</th>
-                          <th className="hidden sm:table-cell px-3 py-2">Last {p.window}d</th>
-                          <th className="px-3 py-2">Change</th>
-                          <th className="px-3 py-2">Threshold</th>
-                          <th className="px-3 py-2 whitespace-nowrap">Days below</th>
-                          <th className="px-3 py-2">Past?</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y">
-                        {METRICS.map((x) => {
-                          const v = m[x.key];
+                {scored && (
+                  <>
+                    {/* Verdict and which signal */}
+                    <section aria-label="Verdict">
+                      <div className={`rounded-lg border px-4 py-3 text-sm ${statusStrip[p.status] || statusStrip.unknown}`}>
+                        <div className="flex flex-wrap items-center gap-2 mb-1">
+                          <span className="text-base font-semibold">{STATUS_LABEL[p.status] || p.status}</span>
+                          <span className="text-xs opacity-80">verdict today</span>
+                        </div>
+                        <p>{verdictSentence(p, d, platform)}</p>
+                      </div>
+                      <div className={`grid grid-cols-2 gap-2 mt-3 ${d.lead === 'cpm' ? 'sm:grid-cols-5' : 'sm:grid-cols-4'}`}>
+                        {TRIAD.map((key) => {
+                          const sig = d.signals[key];
                           return (
-                            <tr key={x.key}>
-                              <td className="px-3 py-2 font-medium">{x.label}</td>
-                              <td className="hidden sm:table-cell px-3 py-2 text-gray-600">{x.fmt(v.baseline)}</td>
-                              <td className="hidden sm:table-cell px-3 py-2 text-gray-600">{x.fmt(v.current)}</td>
-                              <td className={`px-3 py-2 font-medium ${v.change < -x.threshold ? 'text-red-600' : 'text-gray-900'}`}>{pct(v.change)}</td>
-                              <td className="px-3 py-2 text-gray-600">−{Math.round(x.threshold * 100)}%</td>
-                              <td className="px-3 py-2 text-gray-600">{v.consecutiveDaysBelow} / {m.requiredRun}</td>
-                              <td className="px-3 py-2">
-                                {v.isFatigued
-                                  ? <span className="text-red-600 font-semibold" aria-label="past threshold">✗ yes</span>
-                                  : <span className="text-green-600 font-semibold" aria-label="within threshold">✓ no</span>}
-                              </td>
-                            </tr>
+                            <SignalChip key={key} label={sig.label} value={pct(sig.change)} state={sig.state} isLead={d.lead === key} />
                           );
                         })}
-                        <tr>
-                          <td className="px-3 py-2 font-medium">Frequency</td>
-                          <td className="hidden sm:table-cell px-3 py-2 text-gray-400">—</td>
-                          <td className="hidden sm:table-cell px-3 py-2 text-gray-400">—</td>
-                          <td className="px-3 py-2 text-gray-900 font-medium whitespace-nowrap" title={`Last ${p.window} days average`}>
-                            {creative.platform === 'meta' || m.frequency.current > 0
-                              ? `${m.frequency.current.toFixed(1)} avg`
-                              : <span className="text-gray-400 font-normal">not reported</span>}
-                          </td>
-                          <td className="px-3 py-2 text-gray-600 whitespace-nowrap">cap {m.frequency.limit}</td>
-                          <td className="px-3 py-2 text-gray-400">—</td>
-                          <td className="px-3 py-2">
-                            {m.frequency.isHigh
-                              ? <span className="text-red-600 font-semibold" aria-label="over cap">✗ over</span>
-                              : <span className="text-green-600 font-semibold" aria-label="under cap">✓ under</span>}
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-2">
-                    Fatigued = 2+ of CTR, CVR, ROAS past threshold for {thresholds.consecutiveDays} consecutive days, or frequency over the {PLATFORM_LABEL[creative.platform] || creative.platform} cap.
-                    {' '}Confidence {Math.round(p.confidence * 100)}% ({pluralDays(analysis.series.length)} of history).
-                    {creative.platform !== 'meta' && m.frequency.current === 0 && ` ${PLATFORM_LABEL[creative.platform] || creative.platform} does not report frequency, so this creative is judged on the metric triad alone.`}
-                  </p>
-                </div>
-              )}
-            </>
+                        {d.frequency.reported ? (
+                          <SignalChip
+                            label={`Frequency, ${d.definition.window}d avg`}
+                            value={d.frequency.windowAvg.toFixed(1)}
+                            state={d.frequency.isHigh ? 'past' : 'holding'}
+                            stateLabel={`${d.frequency.isHigh ? 'Over' : 'Under'} cap of ${d.frequency.limit}`}
+                            isLead={d.lead === 'frequency'}
+                          />
+                        ) : (
+                          <SignalChip label="Frequency" value="n/a" state="neutral" stateLabel="Not reported" />
+                        )}
+                        {d.lead === 'cpm' && d.cost.cpm.change !== null && (
+                          <SignalChip label="CPM" value={pct(d.cost.cpm.change)} state="bending" stateLabel="Media cost up" isLead />
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-500 mt-2">
+                        Change is the last {pluralDays(d.definition.window)} against the creative&apos;s own baseline.
+                      </p>
+                    </section>
+
+                    <Why prediction={p} diagnosis={d} platform={platform} />
+
+                    <section aria-labelledby="detail-evidence">
+                      <SectionTitle sub="One chart per signal, same dates on every x axis. Scales are zoomed to the data, so they do not start at zero.">
+                        <span id="detail-evidence">Evidence</span>
+                      </SectionTitle>
+                      <EvidenceCharts series={analysis.series} prediction={p} diagnosis={d} platform={platform} />
+                    </section>
+
+                    <Projection creative={creative} series={analysis.series} prediction={p} diagnosis={d} now={analysis.now} />
+
+                    <Definition series={analysis.series} prediction={p} diagnosis={d} platform={platform} />
+                  </>
+                )}
+              </div>
+            </div>
           )}
         </div>
       </div>

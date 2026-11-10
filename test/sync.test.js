@@ -104,7 +104,7 @@ test('SyncService: the same frequency on Meta is fatigued and alerts', async () 
   const alerts = insertedAlerts(db);
   assert.equal(alerts.length, 1);
   assert.equal(alerts[0].params[1], 'fatigue_detected');
-  assert.match(alerts[0].params[3], /Meta creative is fatigued/);
+  assert.match(alerts[0].params[3], /Meta creative: fatigued by the rule.*Audience saturated/);
 });
 
 test('SyncService.syncAllAccounts queries active accounts and maps DB columns', async () => {
